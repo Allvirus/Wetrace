@@ -1611,9 +1611,6 @@ function friendlyScanMessage(event) {
     if (msg.includes('已结束进程') || msg.includes('重新启动') || msg.includes('关闭微信')) {
       return '正在重启微信以捕获密钥…';
     }
-    if (msg.includes('管理员')) {
-      return sanitizeScanMessage(msg);
-    }
     if (msg.includes('提取') || msg.includes('密钥') || msg.includes('Hook') || msg.includes('捕获')) {
       return sanitizeScanMessage(msg);
     }
@@ -1659,7 +1656,7 @@ function friendlyScanNote(event) {
 
   if (phase === 'keys') {
     if (msg.includes('Hook 已就绪') || msg.includes('等待密钥') || msg.includes('仍在捕获') || msg.includes('点击「登录」')) {
-      return '请在弹出的微信窗口点击「登录」。若长时间无响应，请右键本程序「以管理员身份运行」后重试。';
+      return '请在弹出的微信窗口点击「登录」。若长时间无响应，请确认 Hook 已就绪后再试。';
     }
     if (msg.includes('正在准备 Hook 环境') || msg.includes('Hook 环境准备完成')) {
       return '正在加载解密模块并定位微信路径，此阶段不会关闭微信。准备完成后才会重启微信。';
@@ -1672,9 +1669,6 @@ function friendlyScanNote(event) {
       msg.includes('后台启动')
     ) {
       return '微信已重启，正在安装 Hook。看到「Hook 已就绪」后再点击「登录」，否则无法捕获密钥。';
-    }
-    if (msg.includes('管理员') || msg.includes('安装 Hook')) {
-      return '获取密钥需要管理员权限。请关闭本程序，右键「以管理员身份运行」后再扫描。';
     }
     return '工具会暂时关闭并重启微信，Hook 就绪后再点击「登录」。整个过程通常 1～3 分钟。';
   }
@@ -2361,7 +2355,7 @@ async function startExport() {
     await showFriendlyError(
       '导出失败',
       result.error,
-      '常见原因：微信未登录、密钥未加载、目录无写入权限。\n建议先打开几个聊天窗口，或以管理员身份运行后重试。'
+      '常见原因：微信未登录、密钥未加载、目录无写入权限。\n建议先打开几个聊天窗口后重试。'
     );
   }
 }
