@@ -49,6 +49,18 @@ const exportEstimateLine = document.getElementById('exportEstimateLine');
 const convSearch = document.getElementById('convSearch');
 const selectAllBtn = document.getElementById('selectAllBtn');
 const selectNoneBtn = document.getElementById('selectNoneBtn');
+const batchTimeBtn = document.getElementById('batchTimeBtn');
+const convTypeFilterEl = document.querySelector('.conv-type-filter');
+const convRangeModal = document.getElementById('convRangeModal');
+const convRangeModalTitle = document.getElementById('convRangeModalTitle');
+const convRangeModalSubtitle = document.getElementById('convRangeModalSubtitle');
+const convRangeAllCount = document.getElementById('convRangeAllCount');
+const convRangePicker = document.getElementById('convRangePicker');
+const convRangeStart = document.getElementById('convRangeStart');
+const convRangeEnd = document.getElementById('convRangeEnd');
+const convRangeCountHint = document.getElementById('convRangeCountHint');
+const convRangeCancelBtn = document.getElementById('convRangeCancelBtn');
+const convRangeConfirmBtn = document.getElementById('convRangeConfirmBtn');
 const backBtn = document.getElementById('backBtn');
 const startBtn = document.getElementById('startBtn');
 const cancelBtn = document.getElementById('cancelBtn');
@@ -80,6 +92,11 @@ let lastOutputDir = '';
 let lastHtmlIndexPath = '';
 let scannedAccounts = [];
 let conversationItems = [];
+let convTypeFilter = 'all';
+const convExportRanges = new Map();
+let convRangeDialogContext = null;
+let convRangeBounds = { first: 0, last: 0 };
+let convRangeCountTimer = null;
 let resolvedAccountPath = null;
 let selectedAccountPath = null;
 let exportRunning = false;
@@ -371,13 +388,40 @@ function formatRemaining(seconds) {
   return `约还需 ${hours} 小时 ${restMins} 分钟`;
 }
 
+function getConvExportRange(username) {
+  return convExportRanges.get(username) || { mode: 'all' };
+}
+
+function getEffectiveMessageCount(conv) {
+  const range = getConvExportRange(conv.username);
+  if (range.mode === 'range' && range.rangeMessageCount != null) {
+    return range.rangeMessageCount;
+  }
+  return conv.messageCount;
+}
+
+function getEffectiveVoiceCount(conv) {
+  const range = getConvExportRange(conv.username);
+  if (range.mode === 'range' && range.rangeVoiceCount != null) {
+    return range.rangeVoiceCount;
+  }
+  return conv.voiceCount || 0;
+}
+
 function getSelectionStats() {
-  const selected = getSelectedUsernames();
-  const items = conversationItems.filter((item) => selected.includes(item.username));
+  const selected = new Set(getSelectedUsernames());
+  const items = conversationItems.filter((item) => selected.has(item.username));
+  let rangedConversationCount = 0;
+  for (const item of items) {
+    if (getConvExportRange(item.username).mode === 'range') {
+      rangedConversationCount += 1;
+    }
+  }
   return {
     conversationCount: items.length,
-    messageCount: items.reduce((sum, item) => sum + item.messageCount, 0),
-    voiceCount: items.reduce((sum, item) => sum + (item.voiceCount || 0), 0),
+    messageCount: items.reduce((sum, item) => sum + getEffectiveMessageCount(item), 0),
+    voiceCount: items.reduce((sum, item) => sum + getEffectiveVoiceCount(item), 0),
+    rangedConversationCount,
   };
 }
 
@@ -386,15 +430,29 @@ function buildSelectionLine(stats) {
     return '';
   }
   const voicePart = stats.voiceCount > 0 ? `，${formatCount(stats.voiceCount)} 条语音` : '';
-  return `已选 ${stats.conversationCount} / ${conversationItems.length} 个会话，约 ${formatCount(stats.messageCount)} 条消息${voicePart}`;
+  const rangePart =
+    stats.rangedConversationCount > 0
+      ? `（${stats.rangedConversationCount} 个会话限定了时间）`
+      : '';
+  return `已选 ${stats.conversationCount} / ${conversationItems.length} 个会话，约 ${formatCount(stats.messageCount)} 条消息${voicePart}${rangePart}`;
 }
 
-function formatConvCountLabel(conv) {
-  const messagePart = `${formatCount(conv.messageCount)} 条`;
-  if (!conv.voiceCount) {
+function formatConvCountLabel(conv, range = null) {
+  const exportRange = range || getConvExportRange(conv.username);
+  let messagePart;
+  if (exportRange.mode === 'range' && exportRange.rangeMessageCount != null) {
+    messagePart = `约 ${formatCount(exportRange.rangeMessageCount)} / ${formatCount(conv.messageCount)} 条`;
+  } else {
+    messagePart = `${formatCount(conv.messageCount)} 条`;
+  }
+  const voiceTotal = conv.voiceCount || 0;
+  if (!voiceTotal) {
     return messagePart;
   }
-  return `${messagePart} · ${formatCount(conv.voiceCount)} 语音`;
+  if (exportRange.mode === 'range' && exportRange.rangeVoiceCount != null) {
+    return `${messagePart} · ${formatCount(exportRange.rangeVoiceCount)} / ${formatCount(voiceTotal)} 语音`;
+  }
+  return `${messagePart} · ${formatCount(voiceTotal)} 语音`;
 }
 
 function formatScanStatsSummary(result) {
@@ -541,7 +599,7 @@ function resetExportTaskProgress() {
 }
 
 function initExportTaskProgress(options, stats) {
-  exportTaskTotal = Math.max(1, options.selectedUsernames?.length || 0);
+  exportTaskTotal = Math.max(1, options.selectedConversations?.length || options.selectedUsernames?.length || 0);
   exportTaskExported = 0;
   exportTaskVoiceEnabled = Boolean(options.voiceTranscription);
   exportTaskVoiceTotal = exportTaskVoiceEnabled ? Math.max(0, stats.voiceCount || 0) : 0;
@@ -1106,26 +1164,205 @@ function formatCount(n) {
   return n.toLocaleString('zh-CN');
 }
 
-function renderConversationList(conversations) {
-  conversationItems = conversations;
+function unixToDateInputValue(unixSec) {
+  if (!unixSec) return '';
+  const date = new Date(unixSec * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function dateInputToUnixStart(dateStr) {
+  if (!dateStr) return null;
+  const date = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.floor(date.getTime() / 1000);
+}
+
+function dateInputToUnixEnd(dateStr) {
+  if (!dateStr) return null;
+  const date = new Date(`${dateStr}T23:59:59`);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.floor(date.getTime() / 1000);
+}
+
+function formatDateRangeLabel(startTime, endTime) {
+  const fmt = (unixSec) =>
+    new Date(unixSec * 1000).toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    });
+  return `${fmt(startTime)} ~ ${fmt(endTime)}`;
+}
+
+function getConvTimeBounds(conv) {
+  const first = conv.firstTimestamp || 0;
+  const last = conv.lastTimestamp || first || Math.floor(Date.now() / 1000);
+  return {
+    first: first > 0 ? first : last,
+    last: last > 0 ? last : first,
+  };
+}
+
+function getBatchTimeBounds(usernames) {
+  let first = 0;
+  let last = 0;
+  for (const username of usernames) {
+    const conv = conversationItems.find((item) => item.username === username);
+    if (!conv) continue;
+    const bounds = getConvTimeBounds(conv);
+    if (!first || bounds.first < first) first = bounds.first;
+    if (bounds.last > last) last = bounds.last;
+  }
+  if (!last) {
+    last = Math.floor(Date.now() / 1000);
+  }
+  if (!first) {
+    first = last;
+  }
+  return { first, last };
+}
+
+async function fetchConvTimeBounds(username) {
+  const accountPath = resolvedAccountPath || getSelectedAccountPath();
+  const conv = conversationItems.find((item) => item.username === username);
+  if (!accountPath || !conv) {
+    return conv ? getConvTimeBounds(conv) : { first: 0, last: Math.floor(Date.now() / 1000) };
+  }
+
+  const result = await window.exporter.getConversationTimeBounds({
+    wxDir: accountPath,
+    username,
+  });
+  if (result.ok && result.firstTimestamp > 0 && result.lastTimestamp > 0) {
+    conv.firstTimestamp = result.firstTimestamp;
+    conv.lastTimestamp = result.lastTimestamp;
+    return {
+      first: result.firstTimestamp,
+      last: result.lastTimestamp,
+    };
+  }
+
+  return getConvTimeBounds(conv);
+}
+
+async function fetchBatchTimeBounds(usernames) {
+  let first = 0;
+  let last = 0;
+  for (const username of usernames) {
+    const bounds = await fetchConvTimeBounds(username);
+    if (!first || bounds.first < first) first = bounds.first;
+    if (bounds.last > last) last = bounds.last;
+  }
+  if (!last) {
+    last = Math.floor(Date.now() / 1000);
+  }
+  if (!first) {
+    first = last;
+  }
+  return { first, last };
+}
+
+function setConvRangeDialogLoading(loading) {
+  if (!convRangeModal) return;
+  convRangeConfirmBtn.disabled = loading;
+  for (const btn of convRangeModal.querySelectorAll('.conv-range-preset')) {
+    btn.disabled = loading;
+  }
+  if (convRangeStart) convRangeStart.disabled = loading;
+  if (convRangeEnd) convRangeEnd.disabled = loading;
+  if (loading && convRangeCountHint) {
+    convRangeCountHint.textContent = '正在读取会话时间范围…';
+  }
+}
+
+function buildConvMetaText(conv) {
+  const range = getConvExportRange(conv.username);
+  if (range.mode === 'range' && range.startTime && range.endTime) {
+    let text = formatDateRangeLabel(range.startTime, range.endTime);
+    if (range.rangeMessageCount != null) {
+      text += ` · 约 ${formatCount(range.rangeMessageCount)} 条`;
+    }
+    return text;
+  }
+  return conv.summary || conv.username;
+}
+
+function captureConvSelectionState() {
+  const state = new Map();
+  for (const checkbox of convList.querySelectorAll('input[type="checkbox"][data-username]')) {
+    state.set(checkbox.dataset.username, checkbox.checked);
+  }
+  return state;
+}
+
+function updateConvTypeFilterUI() {
+  if (!convTypeFilterEl) return;
+  for (const btn of convTypeFilterEl.querySelectorAll('.conv-type-btn')) {
+    btn.classList.toggle('active', btn.dataset.type === convTypeFilter);
+  }
+}
+
+function isConvVisible(conv, searchQ, typeFilter) {
+  const nameMatch = !searchQ || conv.displayName.toLowerCase().includes(searchQ);
+  const typeMatch = typeFilter === 'all' || conv.type === typeFilter;
+  return nameMatch && typeMatch;
+}
+
+function applyConvFilters() {
+  const searchQ = convSearch.value.trim().toLowerCase();
+  for (const item of convList.querySelectorAll('.conv-item[data-username]')) {
+    const conv = conversationItems.find((entry) => entry.username === item.dataset.username);
+    const visible = conv ? isConvVisible(conv, searchQ, convTypeFilter) : false;
+    item.classList.toggle('hidden-by-filter', !visible);
+  }
+}
+
+function refreshConvItem(username) {
+  const item = convList.querySelector(`.conv-item[data-username="${CSS.escape(username)}"]`);
+  const conv = conversationItems.find((entry) => entry.username === username);
+  if (!item || !conv) return;
+  const meta = item.querySelector('.conv-meta');
+  const count = item.querySelector('.conv-count');
+  if (meta) meta.textContent = buildConvMetaText(conv);
+  if (count) count.textContent = formatConvCountLabel(conv);
+}
+
+function renderConversationList(conversations, { resetFilters = true } = {}) {
+  const prevSelection = captureConvSelectionState();
+  const sorted = [...conversations].sort((a, b) => b.messageCount - a.messageCount);
+  conversationItems = sorted;
   convList.innerHTML = '';
 
-  if (!conversations.length) {
+  if (resetFilters) {
+    convExportRanges.clear();
+    convTypeFilter = 'all';
+    convSearch.value = '';
+    updateConvTypeFilterUI();
+  }
+
+  if (!sorted.length) {
     convList.innerHTML = '<div class="conv-item"><div class="conv-name">未找到可导出的会话</div></div>';
     updateConvSummary();
     return;
   }
 
-  for (const conv of conversations) {
-    const item = document.createElement('label');
+  for (const conv of sorted) {
+    const item = document.createElement('div');
     item.className = 'conv-item';
+    item.dataset.username = conv.username;
     item.dataset.name = conv.displayName.toLowerCase();
+    item.dataset.type = conv.type;
+
+    const checkLabel = document.createElement('label');
+    checkLabel.className = 'conv-check';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.checked = true;
+    checkbox.checked = prevSelection.has(conv.username) ? prevSelection.get(conv.username) : true;
     checkbox.dataset.username = conv.username;
     checkbox.addEventListener('change', updateConvSummary);
+    checkLabel.appendChild(checkbox);
 
     const main = document.createElement('div');
     const name = document.createElement('div');
@@ -1139,48 +1376,81 @@ function renderConversationList(conversations) {
 
     const meta = document.createElement('div');
     meta.className = 'conv-meta';
-    meta.textContent = conv.summary || conv.username;
+    meta.textContent = buildConvMetaText(conv);
 
     main.appendChild(name);
     main.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'conv-actions';
 
     const count = document.createElement('div');
     count.className = 'conv-count';
     count.textContent = formatConvCountLabel(conv);
 
-    item.appendChild(checkbox);
+    const settingsBtn = document.createElement('button');
+    settingsBtn.type = 'button';
+    settingsBtn.className = 'conv-settings-btn';
+    settingsBtn.textContent = '设置';
+    settingsBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openConvRangeDialog({ mode: 'single', usernames: [conv.username], conv });
+    });
+
+    actions.appendChild(count);
+    actions.appendChild(settingsBtn);
+
+    item.appendChild(checkLabel);
     item.appendChild(main);
-    item.appendChild(count);
+    item.appendChild(actions);
     convList.appendChild(item);
   }
 
+  applyConvFilters();
   updateConvSummary();
 }
 
 function getVisibleConvCheckboxes() {
-  return [...convList.querySelectorAll('.conv-item:not(.hidden-by-search) input[type="checkbox"]')];
+  return [...convList.querySelectorAll('.conv-item:not(.hidden-by-filter) input[type="checkbox"]')];
 }
 
 function getSelectedUsernames() {
   return [...convList.querySelectorAll('input[type="checkbox"]:checked')].map((el) => el.dataset.username);
 }
 
-function updateConvSummary() {
-  const selected = getSelectedUsernames();
-  const selectedMessages = conversationItems
-    .filter((item) => selected.includes(item.username))
-    .reduce((sum, item) => sum + item.messageCount, 0);
+function getSelectedConversations() {
+  const selected = new Set(getSelectedUsernames());
+  return conversationItems
+    .filter((item) => selected.has(item.username))
+    .map((item) => {
+      const range = getConvExportRange(item.username);
+      if (range.mode === 'range' && range.startTime != null && range.endTime != null) {
+        return {
+          username: item.username,
+          timeRange: {
+            mode: 'range',
+            startTime: range.startTime,
+            endTime: range.endTime,
+          },
+        };
+      }
+      return {
+        username: item.username,
+        timeRange: { mode: 'all' },
+      };
+    });
+}
 
-  const summaryText = buildSelectionLine({
-    conversationCount: selected.length,
-    messageCount: selectedMessages,
-  });
+function updateConvSummary() {
+  const stats = getSelectionStats();
+  const summaryText = buildSelectionLine(stats);
   convSummary.textContent = summaryText || '—';
   if (exportSummary) {
     exportSummary.textContent = summaryText || '确认保存位置与格式，然后开始导出。';
   }
   void refreshSelectionSummary();
-  toExportBtn.disabled = selected.length === 0;
+  toExportBtn.disabled = stats.conversationCount === 0;
   startBtn.disabled = exportRunning;
   updateStepNavUI();
 }
@@ -1192,12 +1462,260 @@ function setConvSelection(checked) {
   updateConvSummary();
 }
 
-function filterConversations(keyword) {
-  const q = keyword.trim().toLowerCase();
-  for (const item of convList.querySelectorAll('.conv-item')) {
-    const name = item.dataset.name || '';
-    item.classList.toggle('hidden-by-search', q && !name.includes(q));
+function filterConversations() {
+  applyConvFilters();
+}
+
+function clampUnixToBounds(unixSec) {
+  const first = convRangeBounds.first || unixSec;
+  const last = convRangeBounds.last || unixSec;
+  return Math.min(Math.max(unixSec, first), last);
+}
+
+function setConvRangeDateLimits() {
+  const minDate = unixToDateInputValue(convRangeBounds.first);
+  const maxDate = unixToDateInputValue(convRangeBounds.last);
+  if (!minDate || !maxDate) {
+    return;
   }
+
+  convRangeStart.min = minDate;
+  convRangeEnd.max = maxDate;
+  convRangeStart.max = convRangeEnd.value || maxDate;
+  convRangeEnd.min = convRangeStart.value || minDate;
+}
+
+function setConvRangeDateValues(startUnix, endUnix) {
+  const start = clampUnixToBounds(Math.min(startUnix, endUnix));
+  const end = clampUnixToBounds(Math.max(startUnix, endUnix));
+  convRangeStart.value = unixToDateInputValue(start);
+  convRangeEnd.value = unixToDateInputValue(end);
+  setConvRangeDateLimits();
+  scheduleConvRangeCountHint();
+}
+
+function selectConvRangeMode(mode) {
+  for (const input of convRangeModal.querySelectorAll('input[name="convRangeMode"]')) {
+    input.checked = input.value === mode;
+  }
+  updateConvRangePickerVisibility();
+}
+
+function setConvRangeFormValues(range, conv) {
+  const mode = range?.mode === 'range' ? 'range' : 'all';
+  for (const input of convRangeModal.querySelectorAll('input[name="convRangeMode"]')) {
+    input.checked = input.value === mode;
+  }
+  updateConvRangePickerVisibility();
+
+  if (conv) {
+    convRangeAllCount.textContent = `共 ${formatCount(conv.messageCount)} 条`;
+    convRangeAllCount.classList.remove('hidden');
+  } else {
+    convRangeAllCount.textContent = '';
+    convRangeAllCount.classList.add('hidden');
+  }
+
+  if (mode === 'range' && range.startTime && range.endTime) {
+    setConvRangeDateValues(range.startTime, range.endTime);
+  } else {
+    setConvRangeDateValues(convRangeBounds.first, convRangeBounds.last);
+  }
+}
+
+function updateConvRangePickerVisibility() {
+  const mode = convRangeModal.querySelector('input[name="convRangeMode"]:checked')?.value || 'all';
+  convRangePicker.classList.toggle('hidden', mode !== 'range');
+  if (mode === 'range') {
+    void updateConvRangeCountHint();
+  } else {
+    convRangeCountHint.textContent = '';
+  }
+}
+
+async function updateConvRangeCountHint() {
+  const mode = convRangeModal.querySelector('input[name="convRangeMode"]:checked')?.value || 'all';
+  if (mode !== 'range') {
+    convRangeCountHint.textContent = '';
+    return;
+  }
+
+  const startTime = dateInputToUnixStart(convRangeStart.value);
+  const endTime = dateInputToUnixEnd(convRangeEnd.value);
+  if (!startTime || !endTime || startTime > endTime) {
+    convRangeCountHint.textContent = '请选择有效的起止日期';
+    return;
+  }
+
+  const { mode: dialogMode, usernames } = convRangeDialogContext || {};
+  const accountPath = resolvedAccountPath || getSelectedAccountPath();
+  if (!accountPath) {
+    convRangeCountHint.textContent = '';
+    return;
+  }
+
+  if (dialogMode === 'batch') {
+    convRangeCountHint.textContent = `将统计 ${usernames.length} 个会话在该时间段内的消息`;
+    return;
+  }
+
+  const username = usernames?.[0];
+  if (!username) {
+    convRangeCountHint.textContent = '';
+    return;
+  }
+
+  convRangeCountHint.textContent = '正在统计…';
+  const result = await window.exporter.countConversationRange({
+    wxDir: accountPath,
+    username,
+    startTime,
+    endTime,
+  });
+  if (!result.ok) {
+    convRangeCountHint.textContent = result.error || '统计失败';
+    return;
+  }
+  convRangeCountHint.textContent = `该时间段约 ${formatCount(result.messageCount)} 条消息`;
+}
+
+function scheduleConvRangeCountHint() {
+  if (convRangeCountTimer) {
+    window.clearTimeout(convRangeCountTimer);
+  }
+  convRangeCountTimer = window.setTimeout(() => {
+    convRangeCountTimer = null;
+    void updateConvRangeCountHint();
+  }, 300);
+}
+
+function hideConvRangeModal() {
+  convRangeModal.classList.add('hidden');
+  convRangeDialogContext = null;
+  convRangeConfirmBtn.disabled = false;
+  convRangeCountHint.textContent = '';
+}
+
+async function openConvRangeDialog({ mode, usernames, conv = null }) {
+  if (!usernames.length) {
+    await showFriendlyError('未选择会话', '请先勾选要设置时间的会话。');
+    return;
+  }
+
+  convRangeDialogContext = { mode, usernames, conv };
+
+  if (mode === 'single' && conv) {
+    convRangeModalTitle.textContent = `设置「${conv.displayName}」的导出时间`;
+    convRangeModalSubtitle.textContent = '';
+  } else {
+    convRangeModalTitle.textContent = '批量设置时间范围';
+    convRangeModalSubtitle.textContent = `将应用到已选的 ${usernames.length} 个会话`;
+  }
+
+  convRangeModal.classList.remove('hidden');
+  setConvRangeDialogLoading(true);
+
+  try {
+    if (mode === 'single' && conv) {
+      convRangeBounds = await fetchConvTimeBounds(conv.username);
+      setConvRangeFormValues(getConvExportRange(conv.username), conv);
+    } else {
+      convRangeBounds = await fetchBatchTimeBounds(usernames);
+      setConvRangeFormValues({ mode: 'all' }, null);
+    }
+  } catch (err) {
+    convRangeCountHint.textContent = err.message || '读取时间范围失败';
+  } finally {
+    setConvRangeDialogLoading(false);
+    void updateConvRangeCountHint();
+  }
+}
+
+function applyConvRangePreset(preset) {
+  const first = convRangeBounds.first || 0;
+  const last = convRangeBounds.last || Math.floor(Date.now() / 1000);
+  const now = Math.floor(Date.now() / 1000);
+
+  if (preset === 'reset') {
+    setConvRangeDateValues(first, last);
+    return;
+  }
+
+  if (preset === 'this-year') {
+    const year = new Date().getFullYear();
+    const yearStart = dateInputToUnixStart(`${year}-01-01`) || first;
+    const yearEnd = dateInputToUnixEnd(`${year}-12-31`) || last;
+    setConvRangeDateValues(yearStart, Math.min(yearEnd, now, last));
+    return;
+  }
+
+  const end = last;
+  const seconds =
+    preset === 'three-years' ? 3 * 365 * 24 * 60 * 60 : 365 * 24 * 60 * 60;
+  setConvRangeDateValues(end - seconds, end);
+}
+
+async function confirmConvRangeDialog() {
+  const context = convRangeDialogContext;
+  if (!context?.usernames?.length) {
+    hideConvRangeModal();
+    return;
+  }
+
+  const rangeMode = convRangeModal.querySelector('input[name="convRangeMode"]:checked')?.value || 'all';
+  if (rangeMode === 'all') {
+    for (const username of context.usernames) {
+      convExportRanges.delete(username);
+      refreshConvItem(username);
+    }
+    hideConvRangeModal();
+    updateConvSummary();
+    return;
+  }
+
+  const startTime = dateInputToUnixStart(convRangeStart.value);
+  const endTime = dateInputToUnixEnd(convRangeEnd.value);
+  if (!startTime || !endTime || startTime > endTime) {
+    await showFriendlyError('时间范围无效', '请选择有效的起止日期。');
+    return;
+  }
+
+  const accountPath = resolvedAccountPath || getSelectedAccountPath();
+  if (!accountPath) {
+    await showFriendlyError('未选择账号', '请先选择要导出的微信账号。');
+    return;
+  }
+
+  convRangeConfirmBtn.disabled = true;
+  convRangeCountHint.textContent = '正在统计并应用…';
+
+  for (let i = 0; i < context.usernames.length; i += 1) {
+    const username = context.usernames[i];
+    if (context.mode === 'batch' && context.usernames.length > 1) {
+      convRangeCountHint.textContent = `正在处理 ${i + 1} / ${context.usernames.length} 个会话…`;
+    }
+    const result = await window.exporter.countConversationRange({
+      wxDir: accountPath,
+      username,
+      startTime,
+      endTime,
+    });
+    if (!result.ok) {
+      convRangeConfirmBtn.disabled = false;
+      await showFriendlyError('统计失败', result.error || '无法统计该时间段的消息数量');
+      return;
+    }
+    convExportRanges.set(username, {
+      mode: 'range',
+      startTime,
+      endTime,
+      rangeMessageCount: result.messageCount,
+      rangeVoiceCount: result.voiceCount,
+    });
+    refreshConvItem(username);
+  }
+
+  hideConvRangeModal();
   updateConvSummary();
 }
 
@@ -1533,6 +2051,7 @@ function getExportOptions(extra = {}) {
     loginCapture: true,
     keysPath: null,
     formats: getSelectedFormats(),
+    selectedConversations: getSelectedConversations(),
     selectedUsernames: getSelectedUsernames(),
     voiceTranscription: isVoiceTranscriptionEnabled(),
     ...extra,
@@ -2250,7 +2769,7 @@ async function startExport() {
     return;
   }
 
-  if (!options.selectedUsernames.length) {
+  if (!options.selectedConversations.length) {
     await showFriendlyError('未选择会话', '请至少选择一个要导出的会话。');
     return;
   }
@@ -2291,7 +2810,7 @@ async function startExport() {
     loginCapture: options.loginCapture,
     keysPath: options.keysPath,
     formats: options.formats,
-    selectedUsernames: options.selectedUsernames,
+    selectedConversations: options.selectedConversations,
     voiceTranscription: options.voiceTranscription,
   });
 
@@ -2457,6 +2976,10 @@ appNotice.querySelector('[data-notice-dismiss]').addEventListener('click', dismi
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !appNotice.classList.contains('hidden')) {
     dismissAppNotice();
+    return;
+  }
+  if (event.key === 'Escape' && convRangeModal && !convRangeModal.classList.contains('hidden')) {
+    hideConvRangeModal();
   }
 });
 
@@ -2494,7 +3017,46 @@ cancelBtn.addEventListener('click', async () => {
 });
 selectAllBtn.addEventListener('click', () => setConvSelection(true));
 selectNoneBtn.addEventListener('click', () => setConvSelection(false));
-convSearch.addEventListener('input', () => filterConversations(convSearch.value));
+batchTimeBtn.addEventListener('click', () => {
+  const selected = getSelectedUsernames();
+  void openConvRangeDialog({ mode: 'batch', usernames: selected });
+});
+convSearch.addEventListener('input', () => filterConversations());
+
+if (convTypeFilterEl) {
+  convTypeFilterEl.addEventListener('click', (event) => {
+    const btn = event.target.closest('.conv-type-btn');
+    if (!btn) return;
+    convTypeFilter = btn.dataset.type || 'all';
+    updateConvTypeFilterUI();
+    applyConvFilters();
+  });
+}
+
+if (convRangeModal) {
+  for (const input of convRangeModal.querySelectorAll('input[name="convRangeMode"]')) {
+    input.addEventListener('change', () => updateConvRangePickerVisibility());
+  }
+  convRangeStart?.addEventListener('change', () => {
+    setConvRangeDateLimits();
+    scheduleConvRangeCountHint();
+  });
+  convRangeEnd?.addEventListener('change', () => {
+    setConvRangeDateLimits();
+    scheduleConvRangeCountHint();
+  });
+  for (const btn of convRangeModal.querySelectorAll('.conv-range-preset')) {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectConvRangeMode('range');
+      applyConvRangePreset(btn.dataset.preset);
+    });
+  }
+  convRangeCancelBtn?.addEventListener('click', hideConvRangeModal);
+  convRangeConfirmBtn?.addEventListener('click', () => void confirmConvRangeDialog());
+  convRangeModal.querySelector('[data-conv-range-dismiss]')?.addEventListener('click', hideConvRangeModal);
+}
 
 openOutputBtn.addEventListener('click', () => {
   if (lastOutputDir) {

@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('exporter', {
   resetAccountDecryptData: (payload) => ipcRenderer.invoke('reset-account-decrypt-data', payload),
   resetAllToolTraces: (payload) => ipcRenderer.invoke('reset-all-tool-traces', payload),
   scanConversations: (options) => ipcRenderer.invoke('scan-conversations', options),
+  countConversationRange: (options) => ipcRenderer.invoke('count-conversation-range', options),
+  getConversationTimeBounds: (options) => ipcRenderer.invoke('get-conversation-time-bounds', options),
   cancelScan: () => ipcRenderer.invoke('cancel-scan'),
   loadConversationCache: (payload) => ipcRenderer.invoke('load-conversation-cache', payload),
   listConversationCaches: () => ipcRenderer.invoke('list-conversation-caches'),

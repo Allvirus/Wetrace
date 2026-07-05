@@ -243,6 +243,26 @@ ipcMain.handle('estimate-export', async (_event, params) => {
   });
 });
 
+ipcMain.handle('count-conversation-range', async (_event, options) => {
+  try {
+    const { countConversationMessagesInRange } = require('../lib/exportCore');
+    const result = await countConversationMessagesInRange(options || {});
+    return { ok: true, ...result };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('get-conversation-time-bounds', async (_event, options) => {
+  try {
+    const { getConversationTimeBounds } = require('../lib/exportCore');
+    const result = await getConversationTimeBounds(options || {});
+    return { ok: true, ...result };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 ipcMain.handle('record-export-perf', async (_event, sample) => {
   const { recordExportSample } = require('../lib/exportEstimate');
   const settingsPath = getSettingsPath();
@@ -718,6 +738,7 @@ function runExportInWorker(options) {
         keysPath: options.keysPath,
         formats: options.formats,
         selectedUsernames: options.selectedUsernames,
+        selectedConversations: options.selectedConversations,
         voiceTranscription: options.voiceTranscription,
       },
     });
@@ -774,6 +795,7 @@ ipcMain.handle('start-export', async (_event, options) => {
       keysPath: options.keysPath || null,
       formats: options.formats || ['json'],
       selectedUsernames: options.selectedUsernames || null,
+      selectedConversations: options.selectedConversations || null,
       voiceTranscription: Boolean(options.voiceTranscription),
     });
     if (msg.ok) {

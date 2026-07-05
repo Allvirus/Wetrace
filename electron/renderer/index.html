@@ -221,11 +221,22 @@
               <h2>选择要导出的会话</h2>
               <p id="convSummary" class="subhead">—</p>
             </div>
-            <div class="conv-tools">
-              <input id="convSearch" type="search" placeholder="搜索会话名称…" />
-              <button id="selectAllBtn" class="btn ghost" type="button">全选</button>
-              <button id="selectNoneBtn" class="btn ghost" type="button">全不选</button>
+          </div>
+
+          <div class="conv-toolbar">
+            <input id="convSearch" type="search" placeholder="搜索会话名称…" />
+            <div class="conv-type-filter" role="group" aria-label="会话类型">
+              <button type="button" class="conv-type-btn active" data-type="all">全部</button>
+              <button type="button" class="conv-type-btn" data-type="private">私聊</button>
+              <button type="button" class="conv-type-btn" data-type="group">群聊</button>
             </div>
+          </div>
+
+          <div class="conv-bulk-actions">
+            <button id="selectAllBtn" class="btn ghost" type="button">全选当前</button>
+            <button id="selectNoneBtn" class="btn ghost" type="button">全不选</button>
+            <button id="batchTimeBtn" class="btn ghost" type="button">批量设置时间…</button>
+            <p class="conv-filter-hint">全选 / 全不选仅作用于当前筛选结果，不影响各会话的时间范围。</p>
           </div>
 
           <div id="convList" class="conv-list"></div>
@@ -408,6 +419,52 @@
           <div class="app-notice-actions preflight-modal-actions confirm-mode">
             <button id="preflightModalCancelBtn" class="btn secondary" type="button">取消</button>
             <button id="preflightModalPrimaryBtn" class="btn primary" type="button">开始扫描</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="convRangeModal" class="app-notice hidden" role="dialog" aria-modal="true" aria-labelledby="convRangeModalTitle">
+        <div class="app-notice-backdrop" data-conv-range-dismiss></div>
+        <div class="app-notice-card conv-range-modal-card">
+          <div class="app-notice-body">
+            <h3 id="convRangeModalTitle">设置导出时间</h3>
+            <p id="convRangeModalSubtitle" class="conv-range-subtitle"></p>
+
+            <fieldset class="conv-range-fieldset">
+              <legend class="sr-only">时间范围</legend>
+              <label class="conv-range-option">
+                <input type="radio" name="convRangeMode" value="all" checked />
+                <span>全部时间</span>
+                <span id="convRangeAllCount" class="conv-range-option-meta"></span>
+              </label>
+              <label class="conv-range-option">
+                <input type="radio" name="convRangeMode" value="range" />
+                <span>指定时间段</span>
+              </label>
+              <div id="convRangePicker" class="conv-range-picker hidden">
+                <div class="conv-range-dates">
+                  <label>
+                    <span>从</span>
+                    <input id="convRangeStart" type="date" />
+                  </label>
+                  <label>
+                    <span>到</span>
+                    <input id="convRangeEnd" type="date" />
+                  </label>
+                </div>
+                <div class="conv-range-presets">
+                  <button type="button" class="btn ghost conv-range-preset" data-preset="year">最近一年</button>
+                  <button type="button" class="btn ghost conv-range-preset" data-preset="three-years">最近三年</button>
+                  <button type="button" class="btn ghost conv-range-preset" data-preset="this-year">今年</button>
+                  <button type="button" class="btn ghost conv-range-preset" data-preset="reset">重置</button>
+                </div>
+                <p id="convRangeCountHint" class="conv-range-count-hint"></p>
+              </div>
+            </fieldset>
+          </div>
+          <div class="app-notice-actions confirm-mode">
+            <button id="convRangeCancelBtn" class="btn secondary" type="button">取消</button>
+            <button id="convRangeConfirmBtn" class="btn primary" type="button">确定</button>
           </div>
         </div>
       </div>

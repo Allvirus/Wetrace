@@ -18,6 +18,7 @@ exportWeChatChats({
   keysPath: workerData.keysPath,
   formats: workerData.formats,
   selectedUsernames: workerData.selectedUsernames,
+  selectedConversations: workerData.selectedConversations,
   voiceTranscription: workerData.voiceTranscription,
   shouldCancel: () => cancelled,
   onProgress: (event) => {
