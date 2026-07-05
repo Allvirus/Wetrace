@@ -97,6 +97,8 @@ const convExportRanges = new Map();
 let convRangeDialogContext = null;
 let convRangeBounds = { first: 0, last: 0 };
 let convRangeCountTimer = null;
+const SECONDS_PER_DAY = 24 * 60 * 60;
+const SECONDS_PER_YEAR = 365 * SECONDS_PER_DAY;
 let resolvedAccountPath = null;
 let selectedAccountPath = null;
 let exportRunning = false;
@@ -1167,6 +1169,7 @@ function formatCount(n) {
 function unixToDateInputValue(unixSec) {
   if (!unixSec) return '';
   const date = new Date(unixSec * 1000);
+  if (Number.isNaN(date.getTime())) return '';
   const pad = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
@@ -1195,13 +1198,54 @@ function formatDateRangeLabel(startTime, endTime) {
   return `${fmt(startTime)} ~ ${fmt(endTime)}`;
 }
 
+function normalizeUnixTimestamp(value) {
+  const ts = Number(value) || 0;
+  if (ts <= 0) return 0;
+  // WeChat message create_time is seconds; values above ~2286 CE in seconds are almost certainly ms.
+  return ts > 10000000000 ? Math.floor(ts / 1000) : Math.floor(ts);
+}
+
 function getConvTimeBounds(conv) {
-  const first = conv.firstTimestamp || 0;
-  const last = conv.lastTimestamp || first || Math.floor(Date.now() / 1000);
+  const rawFirst = normalizeUnixTimestamp(conv?.firstTimestamp);
+  const rawLast = normalizeUnixTimestamp(conv?.lastTimestamp);
+  const now = Math.floor(Date.now() / 1000);
+
+  let first = rawFirst;
+  let last = rawLast > 0 ? rawLast : rawFirst > 0 ? rawFirst : now;
+
+  if (first <= 0) {
+    first = last;
+  }
+  if (last <= 0) {
+    last = first;
+  }
+
   return {
-    first: first > 0 ? first : last,
-    last: last > 0 ? last : first,
+    first: Math.min(first, last),
+    last: Math.max(first, last),
   };
+}
+
+function convHasReliableTimeBounds(conv) {
+  if (!conv) return false;
+  const bounds = getConvTimeBounds(conv);
+  if (!bounds.first || !bounds.last || bounds.last < bounds.first) return false;
+  if (!unixToDateInputValue(bounds.first) || !unixToDateInputValue(bounds.last)) return false;
+  if (bounds.last - bounds.first < SECONDS_PER_DAY && (conv.messageCount || 0) > 1) {
+    return false;
+  }
+  return normalizeUnixTimestamp(conv.firstTimestamp) > 0 && normalizeUnixTimestamp(conv.lastTimestamp) > 0;
+}
+
+function isUsableBatchTimeBounds(bounds, usernames) {
+  if (!bounds?.first || !bounds?.last || bounds.last < bounds.first) return false;
+  if (!unixToDateInputValue(bounds.first) || !unixToDateInputValue(bounds.last)) return false;
+  if (bounds.last - bounds.first >= SECONDS_PER_DAY) return true;
+  const totalMessages = usernames.reduce((sum, username) => {
+    const conv = conversationItems.find((item) => item.username === username);
+    return sum + (conv?.messageCount || 0);
+  }, 0);
+  return totalMessages <= 1;
 }
 
 function getBatchTimeBounds(usernames) {
@@ -1211,6 +1255,7 @@ function getBatchTimeBounds(usernames) {
     const conv = conversationItems.find((item) => item.username === username);
     if (!conv) continue;
     const bounds = getConvTimeBounds(conv);
+    if (!bounds.last) continue;
     if (!first || bounds.first < first) first = bounds.first;
     if (bounds.last > last) last = bounds.last;
   }
@@ -1223,9 +1268,13 @@ function getBatchTimeBounds(usernames) {
   return { first, last };
 }
 
-async function fetchConvTimeBounds(username) {
-  const accountPath = resolvedAccountPath || getSelectedAccountPath();
+async function fetchConvTimeBounds(username, { force = false } = {}) {
   const conv = conversationItems.find((item) => item.username === username);
+  if (!force && convHasReliableTimeBounds(conv)) {
+    return getConvTimeBounds(conv);
+  }
+
+  const accountPath = resolvedAccountPath || getSelectedAccountPath();
   if (!accountPath || !conv) {
     return conv ? getConvTimeBounds(conv) : { first: 0, last: Math.floor(Date.now() / 1000) };
   }
@@ -1235,32 +1284,44 @@ async function fetchConvTimeBounds(username) {
     username,
   });
   if (result.ok && result.firstTimestamp > 0 && result.lastTimestamp > 0) {
-    conv.firstTimestamp = result.firstTimestamp;
-    conv.lastTimestamp = result.lastTimestamp;
-    return {
-      first: result.firstTimestamp,
-      last: result.lastTimestamp,
-    };
+    conv.firstTimestamp = normalizeUnixTimestamp(result.firstTimestamp);
+    conv.lastTimestamp = normalizeUnixTimestamp(result.lastTimestamp);
+    return getConvTimeBounds(conv);
   }
 
   return getConvTimeBounds(conv);
 }
 
-async function fetchBatchTimeBounds(usernames) {
-  let first = 0;
-  let last = 0;
-  for (const username of usernames) {
-    const bounds = await fetchConvTimeBounds(username);
-    if (!first || bounds.first < first) first = bounds.first;
-    if (bounds.last > last) last = bounds.last;
+function getConvUsernamesNeedingTimeBounds(usernames, { batch = false } = {}) {
+  const needsFetch = usernames.filter((username) => {
+    const item = conversationItems.find((entry) => entry.username === username);
+    return !convHasReliableTimeBounds(item);
+  });
+  if (needsFetch.length) {
+    return needsFetch;
   }
-  if (!last) {
-    last = Math.floor(Date.now() / 1000);
+  if (batch && !isUsableBatchTimeBounds(getBatchTimeBounds(usernames), usernames)) {
+    return [...usernames];
   }
-  if (!first) {
-    first = last;
+  return [];
+}
+
+function syncConvRangeFormAfterBoundsRefresh(conv) {
+  const mode = convRangeModal.querySelector('input[name="convRangeMode"]:checked')?.value || 'all';
+  if (mode === 'range') {
+    if (!convRangeStart?.value || !convRangeEnd?.value) {
+      setConvRangeDateValues(convRangeBounds.first, convRangeBounds.last);
+    } else {
+      setConvRangeDateLimits();
+      scheduleConvRangeCountHint();
+    }
+    return;
   }
-  return { first, last };
+  if (conv) {
+    setConvRangeFormValues(getConvExportRange(conv.username), conv);
+  } else {
+    setConvRangeFormValues({ mode: 'all' }, null);
+  }
 }
 
 function setConvRangeDialogLoading(loading) {
@@ -1330,7 +1391,13 @@ function refreshConvItem(username) {
 
 function renderConversationList(conversations, { resetFilters = true } = {}) {
   const prevSelection = captureConvSelectionState();
-  const sorted = [...conversations].sort((a, b) => b.messageCount - a.messageCount);
+  const sorted = [...conversations]
+    .map((conv) => ({
+      ...conv,
+      firstTimestamp: normalizeUnixTimestamp(conv.firstTimestamp),
+      lastTimestamp: normalizeUnixTimestamp(conv.lastTimestamp),
+    }))
+    .sort((a, b) => b.messageCount - a.messageCount);
   conversationItems = sorted;
   convList.innerHTML = '';
 
@@ -1467,14 +1534,18 @@ function filterConversations() {
 }
 
 function clampUnixToBounds(unixSec) {
-  const first = convRangeBounds.first || unixSec;
-  const last = convRangeBounds.last || unixSec;
+  const boundFirst = convRangeBounds.first || convRangeBounds.last || unixSec;
+  const boundLast = convRangeBounds.last || convRangeBounds.first || unixSec;
+  const first = Math.min(boundFirst, boundLast);
+  const last = Math.max(boundFirst, boundLast);
   return Math.min(Math.max(unixSec, first), last);
 }
 
 function setConvRangeDateLimits() {
-  const minDate = unixToDateInputValue(convRangeBounds.first);
-  const maxDate = unixToDateInputValue(convRangeBounds.last);
+  const boundFirst = convRangeBounds.first || convRangeBounds.last;
+  const boundLast = convRangeBounds.last || convRangeBounds.first;
+  const minDate = unixToDateInputValue(Math.min(boundFirst, boundLast));
+  const maxDate = unixToDateInputValue(Math.max(boundFirst, boundLast));
   if (!minDate || !maxDate) {
     return;
   }
@@ -1486,10 +1557,22 @@ function setConvRangeDateLimits() {
 }
 
 function setConvRangeDateValues(startUnix, endUnix) {
+  if (!convRangeStart || !convRangeEnd) return;
+
   const start = clampUnixToBounds(Math.min(startUnix, endUnix));
   const end = clampUnixToBounds(Math.max(startUnix, endUnix));
-  convRangeStart.value = unixToDateInputValue(start);
-  convRangeEnd.value = unixToDateInputValue(end);
+  const startValue = unixToDateInputValue(start);
+  const endValue = unixToDateInputValue(end);
+  if (!startValue || !endValue) return;
+
+  convRangeStart.removeAttribute('min');
+  convRangeStart.removeAttribute('max');
+  convRangeEnd.removeAttribute('min');
+  convRangeEnd.removeAttribute('max');
+  convRangeStart.value = startValue;
+  convRangeEnd.value = endValue;
+  convRangeStart.dispatchEvent(new Event('change', { bubbles: true }));
+  convRangeEnd.dispatchEvent(new Event('change', { bubbles: true }));
   setConvRangeDateLimits();
   scheduleConvRangeCountHint();
 }
@@ -1527,6 +1610,13 @@ function updateConvRangePickerVisibility() {
   const mode = convRangeModal.querySelector('input[name="convRangeMode"]:checked')?.value || 'all';
   convRangePicker.classList.toggle('hidden', mode !== 'range');
   if (mode === 'range') {
+    if (
+      convRangeBounds?.first &&
+      convRangeBounds?.last &&
+      (!convRangeStart?.value || !convRangeEnd?.value)
+    ) {
+      setConvRangeDateValues(convRangeBounds.first, convRangeBounds.last);
+    }
     void updateConvRangeCountHint();
   } else {
     convRangeCountHint.textContent = '';
@@ -1606,23 +1696,44 @@ async function openConvRangeDialog({ mode, usernames, conv = null }) {
 
   if (mode === 'single' && conv) {
     convRangeModalTitle.textContent = `设置「${conv.displayName}」的导出时间`;
-    convRangeModalSubtitle.textContent = '';
   } else {
     convRangeModalTitle.textContent = '批量设置时间范围';
-    convRangeModalSubtitle.textContent = `将应用到已选的 ${usernames.length} 个会话`;
   }
+  convRangeModalSubtitle.textContent = '';
 
   convRangeModal.classList.remove('hidden');
-  setConvRangeDialogLoading(true);
 
+  if (mode === 'single' && conv) {
+    convRangeBounds = getConvTimeBounds(conv);
+    setConvRangeFormValues(getConvExportRange(conv.username), conv);
+  } else {
+    convRangeBounds = getBatchTimeBounds(usernames);
+    setConvRangeFormValues({ mode: 'range' }, null);
+  }
+
+  const isBatch = mode === 'batch';
+  const needsFetch = getConvUsernamesNeedingTimeBounds(usernames, { batch: isBatch });
+  const boundsReady =
+    mode === 'single' && conv
+      ? convHasReliableTimeBounds(conv)
+      : isUsableBatchTimeBounds(convRangeBounds, usernames);
+
+  if (!needsFetch.length && boundsReady) {
+    void updateConvRangeCountHint();
+    return;
+  }
+
+  if (!needsFetch.length && !boundsReady) {
+    convRangeCountHint.textContent = '无法读取会话时间范围，请重新扫描后再试。';
+    return;
+  }
+
+  setConvRangeDialogLoading(true);
   try {
-    if (mode === 'single' && conv) {
-      convRangeBounds = await fetchConvTimeBounds(conv.username);
-      setConvRangeFormValues(getConvExportRange(conv.username), conv);
-    } else {
-      convRangeBounds = await fetchBatchTimeBounds(usernames);
-      setConvRangeFormValues({ mode: 'all' }, null);
-    }
+    await Promise.all(needsFetch.map((username) => fetchConvTimeBounds(username)));
+    convRangeBounds =
+      mode === 'single' && conv ? getConvTimeBounds(conv) : getBatchTimeBounds(usernames);
+    syncConvRangeFormAfterBoundsRefresh(mode === 'single' ? conv : null);
   } catch (err) {
     convRangeCountHint.textContent = err.message || '读取时间范围失败';
   } finally {
@@ -1632,12 +1743,23 @@ async function openConvRangeDialog({ mode, usernames, conv = null }) {
 }
 
 function applyConvRangePreset(preset) {
-  const first = convRangeBounds.first || 0;
-  const last = convRangeBounds.last || Math.floor(Date.now() / 1000);
+  const last = convRangeBounds?.last;
+  if (!last) {
+    convRangeCountHint.textContent = '正在读取会话时间范围，请稍候…';
+    return;
+  }
+
+  const first = convRangeBounds.first || last;
+  if (last < first) {
+    convRangeCountHint.textContent = '正在读取会话时间范围，请稍候…';
+    return;
+  }
+
   const now = Math.floor(Date.now() / 1000);
 
   if (preset === 'reset') {
     setConvRangeDateValues(first, last);
+    selectConvRangeMode('range');
     return;
   }
 
@@ -1646,13 +1768,17 @@ function applyConvRangePreset(preset) {
     const yearStart = dateInputToUnixStart(`${year}-01-01`) || first;
     const yearEnd = dateInputToUnixEnd(`${year}-12-31`) || last;
     setConvRangeDateValues(yearStart, Math.min(yearEnd, now, last));
+    selectConvRangeMode('range');
     return;
   }
 
-  const end = last;
-  const seconds =
-    preset === 'three-years' ? 3 * 365 * 24 * 60 * 60 : 365 * 24 * 60 * 60;
-  setConvRangeDateValues(end - seconds, end);
+  if (preset === 'year' || preset === 'three-years') {
+    const seconds = preset === 'three-years' ? 3 * SECONDS_PER_YEAR : SECONDS_PER_YEAR;
+    const end = Math.min(now, last);
+    const start = Math.max(first, end - seconds);
+    setConvRangeDateValues(start, end);
+    selectConvRangeMode('range');
+  }
 }
 
 async function confirmConvRangeDialog() {
@@ -3049,7 +3175,6 @@ if (convRangeModal) {
     btn.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      selectConvRangeMode('range');
       applyConvRangePreset(btn.dataset.preset);
     });
   }
