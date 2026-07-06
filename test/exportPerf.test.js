@@ -129,4 +129,49 @@ describe('exportFormats', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('batches html rendering while preserving exported image paths', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-html-'));
+    const outputDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(path.join(outputDir, 'chats'), { recursive: true });
+
+    try {
+      const messages = Array.from({ length: 200 }, (_, i) => ({
+        id: i,
+        datetime: `2024-01-01 12:${String(i % 60).padStart(2, '0')}:00`,
+        isSelf: i % 2 === 0,
+        senderName: i % 2 === 0 ? '\u6211' : 'Alice',
+        type: i === 180 ? 3 : 1,
+        typeName: i === 180 ? 'image' : 'text',
+        content: i === 180 ? '[\u56fe\u7247]' : `msg-${i}`,
+        extra:
+          i === 180
+            ? { kind: 'image', htmlImagePath: './BigChat.media/media/1700000000_180.png' }
+            : {},
+      }));
+
+      writeChatFormats(
+        {
+          displayName: 'BigChat',
+          type: 'private',
+          messageCount: messages.length,
+          messages,
+        },
+        outputDir,
+        ['html'],
+        'BigChat',
+        '../index.html'
+      );
+
+      const htmlPath = path.join(outputDir, 'chats', 'BigChat.html');
+      const text = fs.readFileSync(htmlPath, 'utf8');
+      assert.match(text, /requestIdleCallback/);
+      assert.match(text, /id="renderStatus"/);
+      assert.match(text, /id="chatMessages"/);
+      assert.match(text, /\.\/BigChat\.media\/media\/1700000000_180\.png/);
+      assert.match(text, /Open image/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

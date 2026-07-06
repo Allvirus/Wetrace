@@ -3240,6 +3240,15 @@ window.exporter.onProgress((event) => {
   }
 
   if (exportRunning && (phase === 'exporting' || phase === 'voice-transcription' || phase === 'done')) {
+    if (phase === 'exporting' && event.subphase === 'image-debug' && event.message) {
+      appendLog(event.message);
+      if (event.imageDebug?.samples?.length) {
+        for (const sample of event.imageDebug.samples) {
+          appendLog(`  image sample: ${JSON.stringify(sample)}`);
+        }
+      }
+      return;
+    }
     const progress = computeExportTotalProgress(event);
     if (progress) {
       setProgressWithEta(progress.percent, progress.text);

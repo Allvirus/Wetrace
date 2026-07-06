@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "export": "node export.js",
-    "start": "electron .",
+    "start": "node scripts/start-electron.js",
     "build:hook": "powershell -ExecutionPolicy Bypass -File scripts/build-wexin-hook.ps1",
     "generate-icon": "node scripts/generate-icon.mjs",
     "pack": "electron-builder --dir",
