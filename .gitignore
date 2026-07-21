@@ -5,3 +5,4 @@ assets/models/**
 !assets/models/.gitkeep
 output/
 vwxyz/
+aws/

@@ -1,4 +1,4 @@
-const { describe, it } = require('node:test');
+﻿const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -7,6 +7,7 @@ const initSqlJs = require('sql.js');
 const {
   createMessageDbPool,
   queryTableRows,
+  queryTableRowsPage,
 } = require('../lib/messageDbPool');
 const {
   createCsvWriter,
@@ -58,6 +59,36 @@ describe('messageDbPool', () => {
         const rows = queryTableRows(db, 'Msg_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d');
         assert.equal(rows.length, 1);
         assert.equal(rows[0].message_content, 'hello');
+      } finally {
+        pool.close();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('pages backward without repeating rows that share a timestamp', async () => {
+    const SQL = await createTestSql();
+    const table = 'Msg_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d';
+    const { tmpDir, dbPath } = createTempDb(SQL, (db) => {
+      db.run('CREATE TABLE Name2Id (rowid INTEGER PRIMARY KEY, user_name TEXT)');
+      db.run(`CREATE TABLE ${table} (local_id INTEGER, server_id INTEGER, local_type INTEGER, sort_seq INTEGER, real_sender_id INTEGER, create_time INTEGER, status INTEGER, message_content TEXT, compress_content TEXT, source TEXT, WCDB_CT_message_content INTEGER)`);
+      db.run(`INSERT INTO ${table} VALUES (1, 101, 1, 1, 1, 100, 0, 'old', '', '', 0)`);
+      db.run(`INSERT INTO ${table} VALUES (2, 102, 1, 2, 1, 200, 0, 'same-a', '', '', 0)`);
+      db.run(`INSERT INTO ${table} VALUES (3, 103, 1, 3, 1, 200, 0, 'same-b', '', '', 0)`);
+    });
+
+    try {
+      const pool = createMessageDbPool(SQL, [dbPath]);
+      try {
+        const first = queryTableRowsPage(pool.getDb(dbPath), table, { limit: 2 });
+        assert.deepEqual(first.map((row) => row.local_id), [3, 2]);
+        const second = queryTableRowsPage(pool.getDb(dbPath), table, {
+          beforeTime: first[1].create_time,
+          beforeLocalId: first[1].local_id,
+          limit: 2,
+        });
+        assert.deepEqual(second.map((row) => row.local_id), [1]);
       } finally {
         pool.close();
       }

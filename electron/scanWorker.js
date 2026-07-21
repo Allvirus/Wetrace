@@ -22,6 +22,7 @@ async function scanConversations(options) {
     listConversations({
       wxDir,
       selfWxid: options.selfWxid || null,
+      decryptedDir: options.decryptedDir || null,
       skipDecrypt: true,
       incrementalBase: options.incrementalBase || null,
       forceFullScan: forceDecrypt,
@@ -36,15 +37,18 @@ async function scanConversations(options) {
     forceDecrypt,
     loginCapture: options.loginCapture !== false,
     keysPath: options.keysPath || null,
+    decryptedDir: options.decryptedDir || null,
+    passphraseCacheDir: options.passphraseCacheDir || null,
     onProgress: (event) => {
       if (cancelled) return;
       postProgress(event);
     },
   };
 
-  if (needsDecrypt(wxDir, forceDecrypt)) {
-    if (hasDecryptedStorage(wxDir)) {
-      postProgress({ phase: 'scan', message: '检测到微信数据有更新，正在同步…' });
+  const requiresDecrypt = needsDecrypt(wxDir, forceDecrypt, options.decryptedDir || null);
+  if (requiresDecrypt) {
+    if (hasDecryptedStorage(wxDir, options.decryptedDir || null)) {
+      postProgress({ phase: 'scan', message: '检测到不信数据有更新，正在同步…' });
     } else {
       postProgress({ phase: 'scan', message: '首次扫描需要解密，可能需要几分钟…' });
     }
@@ -55,20 +59,20 @@ async function scanConversations(options) {
 
   postProgress({ phase: 'scan', message: '正在读取会话列表…' });
 
+  if (!requiresDecrypt) {
+    await ensureDecrypted(decryptOptions);
+    if (cancelled) throw new Error('scan cancelled');
+  }
+
   try {
     return await listOnce();
   } catch (firstErr) {
-    if (cancelled) throw new Error('扫描已取消');
-    if (!hasDecryptedStorage(wxDir)) {
-      throw firstErr;
-    }
-
-    postProgress({ phase: 'scan', message: '读取失败，正在重新解密…' });
-    await ensureDecrypted({ ...decryptOptions, forceDecrypt: true });
-    if (cancelled) throw new Error('扫描已取消');
-
-    postProgress({ phase: 'scan', message: '解密完成，正在统计会话…' });
-    return listOnce();
+    if (cancelled) throw new Error('\u626b\u63cf\u5df2\u53d6\u6d88');
+    postProgress({
+      phase: 'scan',
+      message: '\u8bfb\u53d6\u5931\u8d25\uff0c\u5df2\u505c\u6b62\u81ea\u52a8\u5168\u91cf\u91cd\u89e3\u5bc6',
+    });
+    throw firstErr;
   }
 }
 

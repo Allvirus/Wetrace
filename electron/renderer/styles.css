@@ -87,6 +87,14 @@ body {
   margin-bottom: 18px;
 }
 
+.steps-records-only {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.legacy-export-flow {
+  display: none !important;
+}
+
 .step {
   appearance: none;
   -webkit-appearance: none;
@@ -808,6 +816,46 @@ select:focus {
   background: #fff;
 }
 
+.account-dataset-field {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.account-dataset-field.missing {
+  border-color: #e4c88d;
+  background: #fffaf0;
+}
+
+.account-dataset-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-dataset-head > span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.account-dataset-head .btn {
+  flex-shrink: 0;
+  padding: 7px 10px;
+}
+
+.account-dataset-field p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .step2-actions {
   margin-top: 18px;
   padding-top: 18px;
@@ -1189,6 +1237,15 @@ select:focus {
   align-items: center;
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
+}
+
+.legacy-export-summary .conv-item {
+  grid-template-columns: 1fr auto;
+}
+
+.legacy-export-summary .conv-check,
+.legacy-export-summary .conv-settings-btn {
+  display: none;
 }
 
 .conv-item.hidden-by-filter {

@@ -25,7 +25,7 @@ function parseArgs(argv) {
       args.voiceTranscription = true;
     } else if (arg === '--help' || arg === '-h') {
       console.log('Usage: node export.js --wx-dir PATH [--output PATH] [--self-wxid WXID] [--voice-transcription]');
-      console.log('  --wx-dir PATH          微信账号目录或 xwechat_files 目录（必填）');
+      console.log('  --wx-dir PATH          不信账号目录或 xwechat_files 目录（必填）');
       console.log('  --voice-transcription  需先执行 npm run download-whisper-model 下载模型');
       process.exit(0);
     }
@@ -38,7 +38,7 @@ async function main() {
   const args = parseArgs(process.argv);
 
   if (!args.wxDir) {
-    console.error('[-] 请指定 --wx-dir（微信账号目录或 xwechat_files 目录）');
+    console.error('[-] 请指定 --wx-dir（不信账号目录或 xwechat_files 目录）');
     console.error('    示例: node export.js --wx-dir "D:/WeChat/xwechat_files/wxid_xxx"');
     process.exit(1);
   }

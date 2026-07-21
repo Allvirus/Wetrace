@@ -1,7 +1,7 @@
-{
+﻿{
   "name": "wetrace",
   "version": "2.3.0",
-  "description": "微迹 Wetrace - 微信 PC 聊天记录导出工具",
+  "description": "微迹 Wetrace - 不信群聊 JSON 同步与珠宝图片分类工具",
   "main": "electron/main.js",
   "author": "",
   "license": "MIT",
@@ -10,18 +10,19 @@
     "start": "node scripts/start-electron.js",
     "build:hook": "powershell -ExecutionPolicy Bypass -File scripts/build-wexin-hook.ps1",
     "generate-icon": "node scripts/generate-icon.mjs",
-    "pack": "electron-builder --dir",
+    "pack": "node scripts/run-electron-builder.js --dir",
     "predist": "node scripts/generate-icon.mjs && node scripts/ensure-hook-dll.js && node scripts/ensure-sharp-stub.js && node scripts/download-whisper-model.js",
     "download-whisper-model": "node scripts/download-whisper-model.js",
     "postinstall": "node scripts/ensure-sharp-stub.js",
-    "dist": "npm run predist && electron-builder --win portable",
-    "dist:installer": "npm run predist && electron-builder --win nsis",
-    "test": "node --test test/exportPerf.test.js test/exportEstimate.test.js"
+    "dist": "npm run predist && node scripts/run-electron-builder.js --win portable",
+    "dist:installer": "npm run predist && node scripts/run-electron-builder.js --win nsis",
+    "test": "node --test test/decryptIncremental.test.js test/accountDataPaths.test.js test/exportPerf.test.js test/exportEstimate.test.js test/viewerCore.test.js test/groupRecordStore.test.js test/imageMediaStrict.test.js test/jewelryDataset.test.js test/codexJewelryClassifier.test.js test/jewelryTaskCoordinator.test.js test/jewelryUiContract.test.js test/pinyinSearch.test.js test/wordingPolicy.test.js"
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
     "fzstd": "^0.1.1",
     "koffi": "^3.0.2",
+    "pinyin-pro": "^3.28.1",
     "silk-wasm": "^3.7.1",
     "sql.js": "^1.14.1"
   },

@@ -1,10 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>微迹 Wetrace</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="viewer.css" />
   </head>
   <body>
     <div class="app">
@@ -21,25 +22,25 @@
         </div>
       </header>
 
-      <nav class="steps" aria-label="导出步骤">
+      <nav class="steps steps-records-only" aria-label="操作步骤">
         <button type="button" class="step active" data-step="1" aria-current="step"><span>1</span> 开始</button>
         <button type="button" class="step" data-step="2"><span>2</span> 选择账号</button>
-        <button type="button" class="step" data-step="3"><span>3</span> 选择会话</button>
-        <button type="button" class="step" data-step="4"><span>4</span> 导出设置</button>
-        <button type="button" class="step" data-step="5"><span>5</span> 完成</button>
+        <button type="button" class="step" data-step="3"><span>3</span> 群聊记录</button>
+        <button type="button" class="step legacy-export-flow" data-step="4" aria-hidden="true"><span>4</span> 导出设置</button>
+        <button type="button" class="step legacy-export-flow" data-step="5" aria-hidden="true"><span>5</span> 完成</button>
       </nav>
 
       <!-- Step 1: Welcome -->
       <section id="step1Panel" class="panel">
         <div class="card welcome-card">
           <h2>欢迎使用微迹</h2>
-          <p class="welcome-lead">在本地电脑导出微信 PC 版聊天记录，数据不会离开你的设备。</p>
+            <p class="welcome-lead">查看不信 PC 版群聊记录，并自动保存为本地 SQLite 与图片数据集。</p>
 
           <div class="info-block privacy-block">
             <h3>隐私说明</h3>
             <ul class="info-list">
-              <li>本工具<strong>完全在本地运行</strong>，不会上传、同步或分享你的聊天记录</li>
-              <li>所有读写操作仅针对你电脑上的微信数据目录和导出文件夹</li>
+              <li>读取与 SQLite 存储在本地完成；只有启用 Codex 图片分类时，才会在确认后提交图片及上下文</li>
+              <li>所有读写操作仅针对你电脑上的不信数据目录和数据集文件夹</li>
               <li>我们不会收集任何个人数据或聊天内容</li>
             </ul>
           </div>
@@ -49,14 +50,14 @@
             <ul class="info-list">
               <li><strong>读取本地数据</strong> — 从 <code>xwechat_files</code> 账号目录读取加密的 SQLite 数据库</li>
               <li><strong>获取解密密钥</strong> — 首次使用时在本机捕获密钥；完成后密钥与解密结果保存在本地，无需每次重复</li>
-              <li><strong>扫描与导出</strong> — 解密后统计会话列表，再按你勾选的格式写入导出文件夹</li>
+              <li><strong>读取与保存</strong> — 解密后查看群聊记录，并将选定消息和图片自动写入本地数据集</li>
             </ul>
             <details class="disclaimer-details">
-              <summary>不同微信版本如何获取密钥？</summary>
+              <summary>不同不信版本如何获取密钥？</summary>
               <div class="disclaimer-body">
-                <p>工具会自动识别微信版本并选用对应方式，无需手动选择。</p>
+                <p>工具会自动识别不信版本并选用对应方式，无需手动选择。</p>
                 <ul>
-                  <li><strong>4.1.9 及更早</strong> — 登录后密钥在进程内存中，扫描已登录的微信进程定位</li>
+                  <li><strong>4.1.9 及更早</strong> — 登录后密钥在进程内存中，扫描已登录的不信进程定位</li>
                   <li><strong>4.1.10 及之后</strong> — 密钥仅在登录瞬间出现，通过内置 DLL Hook 拦截；扫描时会提示何时点击「登录」</li>
                 </ul>
                 <p>两种方式均在本机完成；解密后的数据库保存在账号目录的 <code>db_storage_decrypted</code> 中，由你完全控制。</p>
@@ -65,16 +66,15 @@
           </div>
 
           <div class="info-block">
-            <h3>导出后你会得到</h3>
-            <p class="hint">实际文件取决于你勾选的导出格式（可多选）</p>
+            <h3>确认读取后自动保存</h3>
+            <p class="hint">当前账号生成的数据库、群聊记录、图片和分类结果全部保存在这个目录</p>
             <div class="output-preview">
               <div class="output-tree">
-                <code>导出文件夹/</code>
-                <code>├── index.html — 勾选 HTML 时，浏览器浏览所有会话（推荐）</code>
-                <code>├── conversations.json — 勾选 JSON 时，会话索引与元数据</code>
-                <code>├── contacts.json — 勾选 JSON 时，联系人昵称对照表</code>
-                <code>├── messages.csv — 勾选 CSV 时，全部消息汇总表</code>
-                <code>└── chats/ — 各会话单独的 HTML / JSON / TXT 文件</code>
+                <code>数据集/</code>
+                <code>├── dataset.db — 账号、扫描索引、保存范围、分类体系与任务</code>
+                <code>├── runtime/ — 解密数据库、密钥缓存与群聊读取库</code>
+                <code>├── conversations/ — 每群独立 SQLite，保存消息、图片记录和注解</code>
+                <code>└── media/ — 按群聊保存的本地图片文件</code>
               </div>
             </div>
           </div>
@@ -82,11 +82,11 @@
           <details class="disclaimer-details">
             <summary>免责声明</summary>
             <div class="disclaimer-body">
-              <p>本工具为第三方开源工具，<strong>仅供个人学习、研究和技术交流</strong>，与腾讯微信无任何关联。使用前请确认：</p>
+              <p>本工具为第三方开源工具，<strong>仅供个人学习、研究和技术交流</strong>，与腾讯不信无任何关联。使用前请确认：</p>
               <ul>
-                <li>你导出的聊天记录<strong>仅供个人备份与合法查阅</strong>，请遵守相关法律法规</li>
+                <li>你保存的聊天记录<strong>仅供个人备份与合法查阅</strong>，请遵守相关法律法规</li>
                 <li>请勿将本工具用于窃取他人隐私、未经授权访问他人账号等非法用途</li>
-                <li>解密过程需要读取微信本地数据库，请确保你<strong>有权访问</strong>该账号数据（即账号为你本人所有）</li>
+                <li>解密过程需要读取不信本地数据库，请确保你<strong>有权访问</strong>该账号数据（即账号为你本人所有）</li>
                 <li>因使用本工具产生的任何后果（包括数据丢失、账号异常、法律纠纷），<strong>由使用者自行承担</strong></li>
                 <li>建议于下载后 24 小时内删除</li>
               </ul>
@@ -101,7 +101,7 @@
           <p class="hint welcome-footnote">遇到扫描失败？程序会自动保存诊断日志，可在失败提示中打开日志文件夹查看（不含聊天记录与密钥）。</p>
 
           <div class="actions">
-            <button id="welcomeNextBtn" class="btn primary" type="button" disabled>开始导出</button>
+            <button id="welcomeNextBtn" class="btn primary" type="button" disabled>开始使用</button>
           </div>
         </div>
       </section>
@@ -110,7 +110,7 @@
       <section id="step2Panel" class="panel hidden">
         <div class="card step2-card">
           <div class="step2-intro">
-            <h2>选择微信账号</h2>
+            <h2>选择不信账号</h2>
           </div>
 
           <div class="step2-flow">
@@ -118,7 +118,7 @@
               <header class="step2-block-head">
                 <span class="step2-num" aria-hidden="true">1</span>
                 <div class="step2-block-title">
-                  <h3 id="step2Block1Title">微信数据目录</h3>
+                  <h3 id="step2Block1Title">不信数据目录</h3>
                 </div>
                 <button id="autoDetectBtn" class="btn ghost step2-block-action" type="button">自动检测</button>
               </header>
@@ -133,7 +133,7 @@
 
               <details class="step2-tip">
                 <summary>如何找到数据目录？</summary>
-                <p>打开微信「设置 → 账号与存储 → 存储位置」，进入该路径下的 <code>xwechat_files</code> 文件夹即可。</p>
+                <p>打开不信「设置 → 账号与存储 → 存储位置」，进入该路径下的 <code>xwechat_files</code> 文件夹即可。</p>
               </details>
             </section>
 
@@ -148,6 +148,14 @@
 
               <div id="accountList" class="account-list"></div>
               <small id="accountHint" class="hint"></small>
+
+              <div id="accountDatasetField" class="account-dataset-field hidden">
+                <div class="account-dataset-head">
+                  <span>当前账号数据目录</span>
+                  <button id="pickAccountDatasetBtn" class="btn ghost" type="button">选择位置</button>
+                </div>
+                <p id="accountDatasetPath">尚未选择目录</p>
+              </div>
 
               <div id="readinessPanel" class="readiness hidden">
                 <div class="readiness-head">
@@ -164,11 +172,11 @@
 
               <details id="multiAccountTip" class="step2-tip hidden">
                 <summary>多账号怎么操作？</summary>
-                <p>该目录下有多个微信账号时，首次解密暂时只能看到 wxid，无法自动对应微信登录页里的头像或昵称。</p>
+                <p>该目录下有多个不信账号时，首次解密暂时只能看到 wxid，无法自动对应不信登录页里的头像或昵称。</p>
                 <ul class="step2-tip-list">
                   <li>先选择一张卡片，再点击「扫描会话」。</li>
-                  <li>扫描过程中微信会重启；请在微信中登录<strong>你认为对应该记录</strong>的账号。</li>
-                  <li>若长时间等待或解密失败，换一个卡片重新扫描，并在微信中登录另一个账号。</li>
+                  <li>扫描过程中不信会重启；请在不信中登录<strong>你认为对应该记录</strong>的账号。</li>
+                  <li>若长时间等待或解密失败，换一个卡片重新扫描，并在不信中登录另一个账号。</li>
                   <li>可参考各卡片上的「最近数据活动」时间，判断平时常用的号。</li>
                 </ul>
               </details>
@@ -178,7 +186,7 @@
               <header class="step2-block-head">
                 <span class="step2-num" aria-hidden="true">3</span>
                 <div class="step2-block-title">
-                  <h3 id="step2Block3Title">历史扫描结果</h3>
+                  <h3 id="step2Block3Title">最近扫描结果</h3>
                 </div>
               </header>
 
@@ -198,7 +206,7 @@
                 <div class="advanced-item">
                   <div class="advanced-item-info">
                     <div class="advanced-item-title">清除全部工具痕迹</div>
-                    <div class="advanced-item-meta">如果你不需要此工具了，可以使用此功能，但是我们无法删除您已导出的聊天记录哦</div>
+                    <div class="advanced-item-meta">如果你不需要此工具了，可以使用此功能；已经保存到其他目录的数据集不会被删除</div>
                   </div>
                   <button id="resetAllToolTracesBtn" class="btn ghost danger-text" type="button">清除</button>
                 </div>
@@ -214,11 +222,11 @@
       </section>
 
       <!-- Step 3: Conversations -->
-      <section id="step3Panel" class="panel hidden">
+      <section id="step3Panel" class="panel hidden legacy-export-summary">
         <div class="card">
           <div class="card-head">
             <div>
-              <h2>选择要导出的会话</h2>
+              <h2>会话扫描结果</h2>
               <p id="convSummary" class="subhead">—</p>
             </div>
           </div>
@@ -232,7 +240,7 @@
             </div>
           </div>
 
-          <div class="conv-bulk-actions">
+          <div class="conv-bulk-actions legacy-export-flow" aria-hidden="true">
             <button id="selectAllBtn" class="btn ghost" type="button">全选当前</button>
             <button id="selectNoneBtn" class="btn ghost" type="button">全不选</button>
             <button id="batchTimeBtn" class="btn ghost" type="button">批量设置时间…</button>
@@ -243,13 +251,14 @@
 
           <div class="actions">
             <button id="backBtn" class="btn secondary" type="button">上一步</button>
-            <button id="toExportBtn" class="btn primary" type="button">下一步</button>
+            <button id="browseRecordsBtn" class="btn primary" type="button">查看群聊消息与分类</button>
+            <button id="toExportBtn" class="btn primary legacy-export-flow" type="button" aria-hidden="true">下一步</button>
           </div>
         </div>
       </section>
 
       <!-- Step 4: Export settings -->
-      <section id="step4Panel" class="panel hidden">
+      <section id="step4Panel" class="panel hidden legacy-export-flow" aria-hidden="true">
         <div class="card step2-card">
           <div class="step2-intro">
             <h2>导出设置</h2>
@@ -264,13 +273,13 @@
                 </div>
               </header>
 
-              <p id="exportSummary" class="export-summary-line">确认保存位置与格式，然后开始导出。</p>
+              <p id="exportSummary" class="export-summary-line">确认保存位置，然后生成 JSON 数据。</p>
               <p id="exportEstimateLine" class="export-time-line hidden"></p>
 
               <details class="step2-tip">
                 <summary>预计时间怎么理解？</summary>
                 <ul class="step2-tip-list">
-                  <li>根据<strong>当前勾选的会话</strong>、消息数量、导出格式和本机运算速度估算；Lv.1–10 代表电脑处理快慢，数字越高越快</li>
+                  <li>根据<strong>当前勾选的会话</strong>、消息数量和本机运算速度估算；Lv.1–10 代表电脑处理快慢，数字越高越快</li>
                   <li>显示的是<strong>参考区间</strong>，不是精确倒计时；磁盘、首次解密等因素可能让实际时间有所出入</li>
                   <li>勾选语音转写后会明显变长；语音若此前已转过，重复导出会更快</li>
                   <li>开始导出后，进度条显示<strong>总进度</strong>（含读取、转写、写入），旁侧会显示<strong>剩余时间</strong>，通常比这里的预估更准确</li>
@@ -289,13 +298,13 @@
 
               <label class="field step2-field">
                 <div class="input-row">
-                  <input id="outputDir" type="text" placeholder="例如 D:\Documents\微信备份" />
+                  <input id="outputDir" type="text" placeholder="例如 D:\Documents\不信备份" />
                 </div>
               </label>
 
               <details class="step2-tip">
                 <summary>保存在哪里比较合适？</summary>
-                <p>建议选择空文件夹。导出完成后会自动生成 <code>index.html</code>、<code>conversations.json</code> 及按会话拆分的文件。</p>
+                <p>建议选择空文件夹。完成后会生成 <code>conversations.json</code>、<code>contacts.json</code> 及按会话拆分的 JSON 文件。</p>
               </details>
             </section>
 
@@ -303,25 +312,17 @@
               <header class="step2-block-head">
                 <span class="step2-num" aria-hidden="true">3</span>
                 <div class="step2-block-title">
-                  <h3 id="step4Block2Title">导出格式</h3>
+                  <h3 id="step4Block2Title">数据格式</h3>
                 </div>
               </header>
 
               <div class="format-grid">
-                <label class="format-chip"><input type="checkbox" name="format" value="html" checked /> HTML</label>
-                <label class="format-chip"><input type="checkbox" name="format" value="json" checked /> JSON</label>
-                <label class="format-chip"><input type="checkbox" name="format" value="txt" /> TXT</label>
-                <label class="format-chip"><input type="checkbox" name="format" value="csv" /> CSV</label>
+                <label class="format-chip"><input type="checkbox" name="format" value="json" checked disabled /> JSON（固定）</label>
               </div>
 
               <details class="step2-tip">
-                <summary>各格式有什么用途？</summary>
-                <ul class="step2-tip-list">
-                  <li><strong>HTML</strong> — 双击 <code>index.html</code> 用浏览器浏览，最直观</li>
-                  <li><strong>JSON</strong> — 结构化数据，便于程序处理</li>
-                  <li><strong>TXT</strong> — 纯文本，每个会话单独文件</li>
-                  <li><strong>CSV</strong> — 表格汇总，适合 Excel 分析</li>
-                </ul>
+                <summary>JSON 中保存什么？</summary>
+                <p>保存结构化消息、发送人和时间；图片使用数据集内的绝对路径与相对路径。</p>
               </details>
             </section>
 
@@ -346,8 +347,8 @@
                 <ul class="step2-tip-list">
                   <li>每条语音约需数秒识别，导出时间可能明显变长；语音较多时建议先导出少量会话试跑</li>
                   <li>工具已内置语音识别模型，全程本地识别、无需联网</li>
-                  <li>转写结果会缓存在微信账号目录，重复导出更快</li>
-                  <li>识别结果会写入 JSON / TXT / HTML / CSV，不保存原始语音文件</li>
+                  <li>转写结果会缓存在不信账号目录，重复导出更快</li>
+                  <li>识别结果会写入 JSON，不保存原始语音文件</li>
                   <li>识别准确率受口音、背景噪音影响，仅供参考</li>
                 </ul>
               </details>
@@ -378,7 +379,7 @@
       </section>
 
       <!-- Step 5: Done -->
-      <section id="step5Panel" class="panel hidden">
+      <section id="step5Panel" class="panel hidden legacy-export-flow" aria-hidden="true">
         <div class="card success-card">
           <div class="success-icon">✓</div>
           <h2>导出完成</h2>
@@ -386,7 +387,6 @@
           <div id="outputGuide" class="output-guide"></div>
           <div class="actions center">
             <button id="openOutputBtn" class="btn primary" type="button">打开导出文件夹</button>
-            <button id="openIndexBtn" class="btn secondary hidden" type="button">打开 index.html</button>
             <button id="restartBtn" class="btn secondary" type="button">再导一次</button>
           </div>
         </div>
@@ -399,7 +399,7 @@
             <strong id="scanToastTitle">正在扫描</strong>
             <span id="scanToastMessage">请稍候…</span>
             <span id="scanToastElapsed" class="scan-toast-elapsed"></span>
-            <span id="scanToastNote" class="scan-toast-note">首次扫描可能需要几分钟。若弹出微信，请点击「登录」</span>
+            <span id="scanToastNote" class="scan-toast-note">首次扫描可能需要几分钟。若弹出不信，请点击「登录」</span>
           </div>
           <button id="cancelScanBtn" class="btn secondary" type="button">取消</button>
         </div>
@@ -484,6 +484,138 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <section id="recordViewer" class="record-viewer hidden" aria-label="群聊信息记录">
+      <header class="viewer-topbar">
+        <div class="viewer-brand">
+          <button id="closeViewerBtn" class="viewer-icon-btn" type="button" title="返回会话列表" aria-label="返回会话列表">×</button>
+          <div>
+            <strong>群聊信息记录</strong>
+            <span id="viewerAccountName">本地不信数据</span>
+          </div>
+        </div>
+        <div class="viewer-sync-tools">
+          <span id="viewerSyncStatus" class="viewer-sync-status idle"><i></i>尚未读取群聊数据</span>
+          <label class="viewer-switch">
+            <input id="viewerAutoSync" type="checkbox" checked />
+            <span aria-hidden="true"></span>
+            自动检查新记录
+          </label>
+          <button id="viewerRefreshBtn" class="viewer-icon-btn" type="button" title="检查本机新记录" aria-label="检查本机新记录">↻</button>
+        </div>
+      </header>
+
+      <div class="viewer-workspace">
+        <aside class="viewer-groups" aria-label="群聊列表">
+          <div class="viewer-pane-head">
+            <h2>群聊</h2>
+            <span id="viewerGroupCount">0</span>
+          </div>
+          <input id="viewerGroupSearch" class="viewer-search" type="search" placeholder="搜索群聊" />
+          <label class="viewer-select-all viewer-select-groups">
+            <input id="viewerSelectAllGroups" type="checkbox" />
+            <span>选择全部群聊</span>
+          </label>
+          <div id="viewerGroupList" class="viewer-group-list"></div>
+        </aside>
+
+        <main class="viewer-timeline">
+          <header class="viewer-timeline-head">
+            <div>
+              <h2 id="viewerConversationTitle">选择一个群聊</h2>
+              <p id="viewerConversationMeta">确认后才读取本地解密消息和图片</p>
+            </div>
+            <div id="viewerTypeFilter" class="viewer-segmented" role="group" aria-label="消息类型">
+              <button class="active" type="button" data-viewer-type="all">全部</button>
+              <button type="button" data-viewer-type="images">仅图片</button>
+            </div>
+          </header>
+          <div id="viewerMessageScroller" class="viewer-message-scroller">
+            <button id="viewerLoadOlderBtn" class="viewer-load-older hidden" type="button">加载更早记录</button>
+            <div id="viewerMessageList" class="viewer-message-list">
+              <div class="viewer-empty">选择群聊并确认后，才会读取本地解密消息和图片</div>
+            </div>
+          </div>
+        </main>
+
+        <aside class="viewer-members" aria-label="成员筛选">
+          <div class="viewer-pane-head">
+            <h2>发送人</h2>
+            <span id="viewerMemberCount">0</span>
+          </div>
+          <input id="viewerMemberSearch" class="viewer-search" type="search" placeholder="搜索成员" />
+          <label class="viewer-select-all">
+            <input id="viewerSelectAllMembers" type="checkbox" checked />
+            <span>全部发送人</span>
+          </label>
+          <div id="viewerMemberList" class="viewer-member-list"></div>
+          <div class="viewer-date-filter">
+            <label>开始日期<input id="viewerStartDate" type="date" /></label>
+            <label>结束日期<input id="viewerEndDate" type="date" /></label>
+          </div>
+          <div class="viewer-sync-scope" aria-label="保存内容">
+            <label><input id="viewerSyncText" type="checkbox" checked />文本消息</label>
+            <label><input id="viewerSyncImages" type="checkbox" checked />图片内容</label>
+          </div>
+          <div class="viewer-dataset-target">
+            <button id="viewerPickDatasetBtn" class="btn secondary" type="button">更改此账号的数据目录</button>
+            <p id="viewerDatasetPath">此账号尚未选择目录</p>
+            <div id="viewerProgressLog" class="viewer-progress-log hidden" aria-live="polite"></div>
+          </div>
+          <button id="viewerOpenReviewBtn" class="btn secondary viewer-export-btn" type="button" disabled>图片识别与分类</button>
+        </aside>
+      </div>
+
+      <section id="viewerClassificationPanel" class="viewer-classification-panel hidden" aria-label="图片识别与分类">
+        <header class="classification-head">
+          <div>
+            <button id="viewerCloseReviewBtn" class="viewer-icon-btn" type="button" aria-label="返回群聊记录">←</button>
+            <div>
+              <h2>珠宝图片分类</h2>
+              <p id="viewerClassificationSummary">等待加载分类任务</p>
+            </div>
+          </div>
+          <div class="classification-actions">
+            <button id="viewerRetryClassificationBtn" class="btn secondary" type="button">识别所选</button>
+            <button id="viewerCancelClassificationBtn" class="btn secondary" type="button">取消识别</button>
+          </div>
+        </header>
+        <div class="classification-filters">
+          <select id="viewerClassificationState" aria-label="分类状态">
+            <option value="" selected>全部状态（待复核优先）</option>
+            <option value="needs_review">待人工复核</option>
+            <option value="failed">识别失败</option>
+            <option value="pending">等待识别</option>
+            <option value="classified">已分类</option>
+            <option value="missing">图片缺失</option>
+          </select>
+          <select id="viewerClassificationGroup" aria-label="群聊"><option value="">全部群聊</option></select>
+          <select id="viewerClassificationCategory" aria-label="品类"><option value="">全部品类</option></select>
+          <select id="viewerClassificationProcess" aria-label="工艺"><option value="">全部工艺</option></select>
+          <select id="viewerClassificationRun" aria-label="分类任务"><option value="">全部任务</option></select>
+          <input id="viewerClassificationSender" type="search" placeholder="搜索发送人" aria-label="搜索发送人" />
+        </div>
+        <div class="classification-batch-bar">
+          <span>批量设置工艺</span>
+          <div id="viewerBatchProcesses" class="classification-process-options"></div>
+          <label><input id="viewerBatchNoProcess" type="checkbox" />确认无匹配工艺</label>
+          <button id="viewerApplyBatchProcessesBtn" class="btn secondary" type="button">应用到所选图片</button>
+        </div>
+        <div id="viewerClassificationList" class="classification-grid">
+          <div class="viewer-empty">保存图片后可在这里复核分类</div>
+        </div>
+        <nav class="classification-pagination" aria-label="图片分页">
+          <button id="viewerClassificationPrevBtn" class="viewer-icon-btn" type="button" title="上一页" aria-label="上一页">←</button>
+          <span id="viewerClassificationPageInfo">第 1 页</span>
+          <button id="viewerClassificationNextBtn" class="viewer-icon-btn" type="button" title="下一页" aria-label="下一页">→</button>
+        </nav>
+      </section>
+    </section>
+
+    <div id="viewerLightbox" class="viewer-lightbox hidden" role="dialog" aria-modal="true" aria-label="图片预览">
+      <button id="viewerLightboxClose" class="viewer-lightbox-close" type="button" aria-label="关闭图片预览">×</button>
+      <img id="viewerLightboxImage" alt="聊天图片预览" />
     </div>
 
     <script src="app.js"></script>

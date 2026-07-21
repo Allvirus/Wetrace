@@ -1,9 +1,16 @@
-const STORAGE_KEY = 'wetrace.settings';
+﻿const STORAGE_KEY = 'wetrace.settings';
+
+const JEWELRY_DATASET_KEY = 'wetrace.jewelryDatasetDirsByAccount';
+const LEGACY_JEWELRY_DATASET_KEY = 'wetrace.jewelryDatasetDir';
+const JEWELRY_CONSENT_KEY = 'wetrace.jewelryCodexConsent';
 
 const wxDirInput = document.getElementById('wxDir');
 const accountField = document.getElementById('accountField');
 const accountList = document.getElementById('accountList');
 const accountHint = document.getElementById('accountHint');
+const accountDatasetField = document.getElementById('accountDatasetField');
+const accountDatasetPath = document.getElementById('accountDatasetPath');
+const pickAccountDatasetBtn = document.getElementById('pickAccountDatasetBtn');
 const multiAccountTip = document.getElementById('multiAccountTip');
 const scanToast = document.getElementById('scanToast');
 const scanToastTitle = document.getElementById('scanToastTitle');
@@ -40,7 +47,6 @@ const welcomeNextBtn = document.getElementById('welcomeNextBtn');
 const accountBackBtn = document.getElementById('accountBackBtn');
 const exportBackBtn = document.getElementById('exportBackBtn');
 const toExportBtn = document.getElementById('toExportBtn');
-const openIndexBtn = document.getElementById('openIndexBtn');
 const outputGuide = document.getElementById('outputGuide');
 const convList = document.getElementById('convList');
 const convSummary = document.getElementById('convSummary');
@@ -73,6 +79,56 @@ const successSummary = document.getElementById('successSummary');
 const voiceTranscriptionBlock = document.getElementById('voiceTranscriptionBlock');
 const voiceTranscriptionInput = document.getElementById('voiceTranscription');
 const voiceTimeHint = document.getElementById('voiceTimeHint');
+const browseRecordsBtn = document.getElementById('browseRecordsBtn');
+const recordViewer = document.getElementById('recordViewer');
+const closeViewerBtn = document.getElementById('closeViewerBtn');
+const viewerAccountName = document.getElementById('viewerAccountName');
+const viewerSyncStatus = document.getElementById('viewerSyncStatus');
+const viewerAutoSync = document.getElementById('viewerAutoSync');
+const viewerRefreshBtn = document.getElementById('viewerRefreshBtn');
+const viewerGroupCount = document.getElementById('viewerGroupCount');
+const viewerGroupSearch = document.getElementById('viewerGroupSearch');
+const viewerSelectAllGroups = document.getElementById('viewerSelectAllGroups');
+const viewerGroupList = document.getElementById('viewerGroupList');
+const viewerConversationTitle = document.getElementById('viewerConversationTitle');
+const viewerConversationMeta = document.getElementById('viewerConversationMeta');
+const viewerTypeFilter = document.getElementById('viewerTypeFilter');
+const viewerMessageScroller = document.getElementById('viewerMessageScroller');
+const viewerLoadOlderBtn = document.getElementById('viewerLoadOlderBtn');
+const viewerMessageList = document.getElementById('viewerMessageList');
+const viewerMemberCount = document.getElementById('viewerMemberCount');
+const viewerMemberSearch = document.getElementById('viewerMemberSearch');
+const viewerSelectAllMembers = document.getElementById('viewerSelectAllMembers');
+const viewerMemberList = document.getElementById('viewerMemberList');
+const viewerStartDate = document.getElementById('viewerStartDate');
+const viewerEndDate = document.getElementById('viewerEndDate');
+const viewerSyncText = document.getElementById('viewerSyncText');
+const viewerSyncImages = document.getElementById('viewerSyncImages');
+const viewerPickDatasetBtn = document.getElementById('viewerPickDatasetBtn');
+const viewerDatasetPath = document.getElementById('viewerDatasetPath');
+const viewerProgressLog = document.getElementById('viewerProgressLog');
+const viewerOpenReviewBtn = document.getElementById('viewerOpenReviewBtn');
+const viewerClassificationPanel = document.getElementById('viewerClassificationPanel');
+const viewerCloseReviewBtn = document.getElementById('viewerCloseReviewBtn');
+const viewerClassificationSummary = document.getElementById('viewerClassificationSummary');
+const viewerClassificationState = document.getElementById('viewerClassificationState');
+const viewerClassificationGroup = document.getElementById('viewerClassificationGroup');
+const viewerClassificationCategory = document.getElementById('viewerClassificationCategory');
+const viewerClassificationProcess = document.getElementById('viewerClassificationProcess');
+const viewerClassificationRun = document.getElementById('viewerClassificationRun');
+const viewerClassificationSender = document.getElementById('viewerClassificationSender');
+const viewerClassificationPrevBtn = document.getElementById('viewerClassificationPrevBtn');
+const viewerClassificationNextBtn = document.getElementById('viewerClassificationNextBtn');
+const viewerClassificationPageInfo = document.getElementById('viewerClassificationPageInfo');
+const viewerBatchProcesses = document.getElementById('viewerBatchProcesses');
+const viewerBatchNoProcess = document.getElementById('viewerBatchNoProcess');
+const viewerApplyBatchProcessesBtn = document.getElementById('viewerApplyBatchProcessesBtn');
+const viewerRetryClassificationBtn = document.getElementById('viewerRetryClassificationBtn');
+const viewerCancelClassificationBtn = document.getElementById('viewerCancelClassificationBtn');
+const viewerClassificationList = document.getElementById('viewerClassificationList');
+const viewerLightbox = document.getElementById('viewerLightbox');
+const viewerLightboxImage = document.getElementById('viewerLightboxImage');
+const viewerLightboxClose = document.getElementById('viewerLightboxClose');
 
 let whisperModelBundled = false;
 const appVersion = document.getElementById('appVersion');
@@ -89,7 +145,6 @@ let currentStep = 1;
 let noticeResolve = null;
 let noticeMode = 'alert';
 let lastOutputDir = '';
-let lastHtmlIndexPath = '';
 let scannedAccounts = [];
 let conversationItems = [];
 let convTypeFilter = 'all';
@@ -132,6 +187,43 @@ const EXPORT_PREP_MAX = 10;
 const EXPORT_WORK_SPAN = 88;
 const EXPORT_ETA_MIN_ELAPSED_SEC = 15;
 const EXPORT_ETA_UPDATE_MS = 5000;
+const VIEWER_SYNC_INTERVAL_MS = 60 * 1000;
+let viewerIsOpen = false;
+let viewerSyncing = false;
+let viewerSyncTimer = null;
+let viewerFingerprint = null;
+let viewerMediaFingerprint = null;
+let viewerSelectedGroup = null;
+let viewerMembers = [];
+let viewerSelectedMembers = null;
+let viewerMessages = [];
+let viewerNextCursor = null;
+let viewerHasMore = false;
+let viewerLoading = false;
+let viewerImagesOnly = false;
+let viewerRequestToken = 0;
+let viewerFilterTimer = null;
+let viewerDatasetDir = '';
+let viewerActiveAccountKey = '';
+let viewerDatasetSyncing = false;
+let viewerDatasetSyncChain = Promise.resolve();
+const viewerDatasetSyncSignatures = new Map();
+let viewerGroupLoadConfirmed = false;
+let viewerConfirmedGroups = new Set();
+let viewerSelectedGroups = new Set();
+let viewerGroupSearchKeys = new Map();
+let viewerGroupSearchIndexToken = 0;
+const viewerGroupSyncOptions = new Map();
+let jewelryProductCategories = [];
+let jewelryProcesses = [];
+let viewerClassificationItems = [];
+let viewerClassificationRuns = [];
+let viewerSelectedClassificationImages = new Set();
+let viewerClassificationFilterTimer = null;
+let viewerClassificationOffset = 0;
+let viewerClassificationTotal = 0;
+let viewerClassificationLimit = 50;
+let viewerClassificationRequestToken = 0;
 
 function isRealDisplayName(displayName, wxid) {
   return Boolean(displayName && displayName !== wxid);
@@ -214,10 +306,8 @@ function saveSettings() {
 function applySettingsToForm(settings) {
   if (settings.wxDir) wxDirInput.value = settings.wxDir;
   if (settings.outputDir) outputDirInput.value = settings.outputDir;
-  if (Array.isArray(settings.formats)) {
-    for (const input of document.querySelectorAll('input[name="format"]')) {
-      input.checked = settings.formats.includes(input.value);
-    }
+  for (const input of document.querySelectorAll('input[name="format"]')) {
+    input.checked = input.value === 'json';
   }
   if (voiceTranscriptionInput && whisperModelBundled) {
     voiceTranscriptionInput.checked = Boolean(settings.voiceTranscription);
@@ -232,7 +322,7 @@ function applySettingsToForm(settings) {
 }
 
 function getSelectedFormats() {
-  return [...document.querySelectorAll('input[name="format"]:checked')].map((el) => el.value);
+  return ['json'];
 }
 
 function updateVoiceTranscriptionUI() {
@@ -263,7 +353,7 @@ function getStepBlockedReason(step) {
     return '请先勾选页面下方的免责声明，再点击「开始导出」按钮。';
   }
   if (step === 3 && !conversationItems.length) {
-    return '请先选择微信账号并点击「扫描会话」，或加载历史扫描结果。';
+    return '请先选择不信账号并点击「扫描会话」，或加载历史扫描结果。';
   }
   if (step === 4 && !conversationItems.length) {
     return '请先完成会话扫描。';
@@ -439,6 +529,11 @@ function buildSelectionLine(stats) {
   return `已选 ${stats.conversationCount} / ${conversationItems.length} 个会话，约 ${formatCount(stats.messageCount)} 条消息${voicePart}${rangePart}`;
 }
 
+function buildConversationOverviewLine() {
+  const groupCount = conversationItems.filter((item) => item.type === 'group').length;
+  return `${conversationItems.length} 个会话 · ${groupCount} 个群聊`;
+}
+
 function formatConvCountLabel(conv, range = null) {
   const exportRange = range || getConvExportRange(conv.username);
   let messagePart;
@@ -501,7 +596,7 @@ function applySelectionSummary({ baseEstimate, voiceEstimate, voiceOn, stats }) 
   });
 
   if (convSummary && currentStep === 3) {
-    convSummary.textContent = selectionLine || '—';
+    convSummary.textContent = buildConversationOverviewLine();
   }
   if (exportSummary && currentStep === 4) {
     exportSummary.textContent = selectionLine || '确认保存位置与格式，然后开始导出。';
@@ -868,6 +963,7 @@ function renderAccountOptions(accounts, selectedPath = null) {
     accountField.classList.add('hidden');
     selectedAccountPath = null;
     accountHint.textContent = '';
+    updateAccountDatasetField();
     updateMultiAccountTip([]);
     return;
   }
@@ -932,7 +1028,7 @@ function renderAccountOptions(accounts, selectedPath = null) {
     info.appendChild(meta);
     card.appendChild(info);
 
-    card.addEventListener('click', () => selectAccount(account.path));
+    card.addEventListener('click', () => void selectAccount(account.path));
     accountList.appendChild(card);
   }
 
@@ -945,9 +1041,10 @@ function renderAccountOptions(accounts, selectedPath = null) {
   }
 
   updateAccountCardSelection();
+  updateAccountDatasetField();
   updateMultiAccountTip(scannedAccounts);
   accountHint.textContent =
-    scannedAccounts.length > 1 && !selectedAccountPath ? '请选择要导出的账号' : '';
+    scannedAccounts.length > 1 && !selectedAccountPath ? '请选择要查看的账号' : '';
 }
 
 async function loadAccountProfiles(accounts) {
@@ -983,6 +1080,7 @@ async function loadAccountProfiles(accounts) {
         window.exporter.patchConversationCacheLabel({
           accountPath: account.path,
           displayName: account.displayName,
+          datasetDir: getViewerDatasetDirForAccountPath(account.path),
         }).catch(() => {});
       }
     }
@@ -992,7 +1090,7 @@ async function loadAccountProfiles(accounts) {
 
 function updateAccountProfileHint(accounts) {
   if (accounts.length > 1 && !selectedAccountPath) {
-    accountHint.textContent = '请选择要导出的账号';
+    accountHint.textContent = '请选择要查看的账号';
     accountHint.className = 'hint';
   } else {
     accountHint.textContent = '';
@@ -1000,14 +1098,23 @@ function updateAccountProfileHint(accounts) {
   }
 }
 
-function selectAccount(accountPath) {
+async function selectAccount(accountPath) {
   selectedAccountPath = accountPath;
   resolvedAccountPath = accountPath;
   updateAccountCardSelection();
+  updateAccountDatasetField(accountPath);
   saveSettings();
   accountHint.textContent = '';
+  accountHint.className = 'hint';
   renderReadiness(null);
   void refreshConversationCacheHint();
+  const accountKey = getViewerAccountKey(accountPath);
+  const datasetDir = await ensureViewerDatasetDirForAccount(accountKey, { prompt: true });
+  if (selectedAccountPath !== accountPath) return;
+  if (!datasetDir) {
+    accountHint.textContent = '请先为此账号选择数据集存放位置，再进入群聊记录。';
+    accountHint.className = 'hint error';
+  }
 }
 
 function renderReadiness(readiness) {
@@ -1018,11 +1125,11 @@ function renderReadiness(readiness) {
 
   readinessPanel.classList.remove('hidden');
   const levelMap = {
-    ready: { text: '微信已登录', className: 'ready' },
+    ready: { text: '不信已登录', className: 'ready' },
     fallback: { text: '未登录此账号', className: 'fallback' },
     offline: { text: '可离线扫描', className: 'fallback' },
     maybe: { text: '建议预热', className: 'maybe' },
-    not_ready: { text: '微信未运行', className: 'not-ready' },
+    not_ready: { text: '不信未运行', className: 'not-ready' },
   };
   const badge = levelMap[readiness.level] || levelMap.not_ready;
   readinessBadge.textContent = badge.text;
@@ -1090,7 +1197,7 @@ async function refreshWxAccountList({ silent = false } = {}) {
   const rootDir = wxDirInput.value.trim();
   if (!rootDir) {
     if (!silent) {
-      wxDirHint.textContent = '请先选择微信数据目录';
+      wxDirHint.textContent = '请先选择不信数据目录';
       wxDirHint.className = 'hint error';
     }
     return;
@@ -1282,6 +1389,7 @@ async function fetchConvTimeBounds(username, { force = false } = {}) {
   const result = await window.exporter.getConversationTimeBounds({
     wxDir: accountPath,
     username,
+    datasetDir: getViewerDatasetDirForAccountPath(accountPath),
   });
   if (result.ok && result.firstTimestamp > 0 && result.lastTimestamp > 0) {
     conv.firstTimestamp = normalizeUnixTimestamp(result.firstTimestamp);
@@ -1409,7 +1517,7 @@ function renderConversationList(conversations, { resetFilters = true } = {}) {
   }
 
   if (!sorted.length) {
-    convList.innerHTML = '<div class="conv-item"><div class="conv-name">未找到可导出的会话</div></div>';
+    convList.innerHTML = '<div class="conv-item"><div class="conv-name">未找到可查看的会话</div></div>';
     updateConvSummary();
     return;
   }
@@ -1512,7 +1620,7 @@ function getSelectedConversations() {
 function updateConvSummary() {
   const stats = getSelectionStats();
   const summaryText = buildSelectionLine(stats);
-  convSummary.textContent = summaryText || '—';
+  convSummary.textContent = buildConversationOverviewLine();
   if (exportSummary) {
     exportSummary.textContent = summaryText || '确认保存位置与格式，然后开始导出。';
   }
@@ -1659,6 +1767,7 @@ async function updateConvRangeCountHint() {
   const result = await window.exporter.countConversationRange({
     wxDir: accountPath,
     username,
+    datasetDir: getViewerDatasetDirForAccountPath(accountPath),
     startTime,
     endTime,
   });
@@ -1808,7 +1917,7 @@ async function confirmConvRangeDialog() {
 
   const accountPath = resolvedAccountPath || getSelectedAccountPath();
   if (!accountPath) {
-    await showFriendlyError('未选择账号', '请先选择要导出的微信账号。');
+    await showFriendlyError('未选择账号', '请先选择要导出的不信账号。');
     return;
   }
 
@@ -1823,6 +1932,7 @@ async function confirmConvRangeDialog() {
     const result = await window.exporter.countConversationRange({
       wxDir: accountPath,
       username,
+      datasetDir: getViewerDatasetDirForAccountPath(accountPath),
       startTime,
       endTime,
     });
@@ -2167,9 +2277,12 @@ function getExportOptions(extra = {}) {
   const cachedProfile = accountPath ? accountProfileCache.get(accountPath) : null;
   const rawName = cachedProfile?.displayName || account?.displayName || null;
   const wxid = account?.wxid || null;
+  const datasetDir = accountPath ? getViewerDatasetDirForAccountPath(accountPath) : '';
   return {
     wxDir: wxDirInput.value.trim(),
     accountPath,
+    accountWxid: wxid,
+    datasetDir,
     displayName: isRealDisplayName(rawName, wxid) ? rawName : null,
     outputDir: outputDirInput.value.trim(),
     selfWxid: null,
@@ -2208,8 +2321,8 @@ function sanitizeScanMessage(msg) {
   return msg
     .replace(/db_storage[^\s]*/g, '数据')
     .replace(/\.wexin_passphrase/g, '密钥')
-    .replace(/Weixin\.dll/g, '微信组件')
-    .replace(/Weixin\.exe/g, '微信');
+    .replace(/Weixin\.dll/g, '不信组件')
+    .replace(/Weixin\.exe/g, '不信');
 }
 
 function friendlyScanMessage(event) {
@@ -2236,7 +2349,7 @@ function friendlyScanMessage(event) {
 
   if (phase === 'keys' && msg) {
     if (msg.includes('Hook 已就绪') || msg.includes('请点击「登录」') || msg.includes('点击「登录」')) {
-      return 'Hook 已就绪，请在微信窗口点击「登录」（通常无需扫码）';
+      return 'Hook 已就绪，请在不信窗口点击「登录」（通常无需扫码）';
     }
     if (msg.includes('正在准备 Hook 环境') || msg.includes('Hook 环境准备完成')) {
       return sanitizeScanMessage(msg);
@@ -2247,21 +2360,21 @@ function friendlyScanMessage(event) {
     if (msg.includes('等待密钥') || msg.includes('仍在捕获') || msg.includes('等待捕获密钥')) {
       return sanitizeScanMessage(msg);
     }
-    if (msg.includes('正在安装 Hook') || msg.includes('Hook 尚未就绪') || msg.includes('等待微信组件')) {
+    if (msg.includes('正在安装 Hook') || msg.includes('Hook 尚未就绪') || msg.includes('等待不信组件')) {
       return '正在安装 Hook，请先不要点击「登录」…';
     }
-    if (msg.includes('已启动微信') || msg.includes('等待微信启动') || msg.includes('未检测到 Weixin')) {
+    if (msg.includes('已启动不信') || msg.includes('等待不信启动') || msg.includes('未检测到 Weixin')) {
       return sanitizeScanMessage(msg);
     }
-    if (msg.includes('已结束进程') || msg.includes('重新启动') || msg.includes('关闭微信')) {
-      return '正在重启微信以捕获密钥…';
+    if (msg.includes('已结束进程') || msg.includes('重新启动') || msg.includes('关闭不信')) {
+      return '正在重启不信以捕获密钥…';
     }
     if (msg.includes('提取') || msg.includes('密钥') || msg.includes('Hook') || msg.includes('捕获')) {
       return sanitizeScanMessage(msg);
     }
   }
 
-  if (msg.includes('正在从微信进程内存提取数据库密钥')) {
+  if (msg.includes('正在从不信进程内存提取数据库密钥')) {
     return '正在准备获取解密密钥…';
   }
   if (msg.includes('解密数据库文件') || msg.startsWith('解密中')) {
@@ -2301,10 +2414,10 @@ function friendlyScanNote(event) {
 
   if (phase === 'keys') {
     if (msg.includes('Hook 已就绪') || msg.includes('等待密钥') || msg.includes('仍在捕获') || msg.includes('点击「登录」')) {
-      return '请在弹出的微信窗口点击「登录」。若长时间无响应，请确认 Hook 已就绪后再试。';
+      return '请在弹出的不信窗口点击「登录」。若长时间无响应，请确认 Hook 已就绪后再试。';
     }
     if (msg.includes('正在准备 Hook 环境') || msg.includes('Hook 环境准备完成')) {
-      return '正在加载解密模块并定位微信路径，此阶段不会关闭微信。准备完成后才会重启微信。';
+      return '正在加载解密模块并定位不信路径，此阶段不会关闭不信。准备完成后才会重启不信。';
     }
     if (
       msg.includes('请先不要点击') ||
@@ -2313,13 +2426,13 @@ function friendlyScanNote(event) {
       msg.includes('Hook 尚未就绪') ||
       msg.includes('后台启动')
     ) {
-      return '微信已重启，正在安装 Hook。看到「Hook 已就绪」后再点击「登录」，否则无法捕获密钥。';
+      return '不信已重启，正在安装 Hook。看到「Hook 已就绪」后再点击「登录」，否则无法捕获密钥。';
     }
-    return '工具会暂时关闭并重启微信，Hook 就绪后再点击「登录」。整个过程通常 1～3 分钟。';
+    return '工具会暂时关闭并重启不信，Hook 就绪后再点击「登录」。整个过程通常 1～3 分钟。';
   }
 
   if (phase === 'decrypt' && (msg.includes('提取') || msg.includes('密钥'))) {
-    return '首次扫描需要获取解密密钥。若弹出微信，请点击「登录」。';
+    return '首次扫描需要获取解密密钥。若弹出不信，请点击「登录」。';
   }
 
   if (phase === 'scan' && event.subphase === 'counting') {
@@ -2327,10 +2440,10 @@ function friendlyScanNote(event) {
   }
 
   if (phase === 'scan' && msg.includes('有更新')) {
-    return '正在重新解密微信数据库以同步最新聊天记录，请保持微信处于登录状态。';
+    return '正在重新解密不信数据库以同步最新聊天记录，请保持不信处于登录状态。';
   }
 
-  return '首次扫描可能需要几分钟。若弹出微信，请点击「登录」';
+  return '首次扫描可能需要几分钟。若弹出不信，请点击「登录」';
 }
 
 function startScanElapsedTimer() {
@@ -2414,6 +2527,7 @@ async function enrichCacheAccountProfiles(caches) {
       window.exporter.patchConversationCacheLabel({
         accountPath: cache.accountPath,
         displayName: profile.displayName,
+        datasetDir: getViewerDatasetDirForAccountPath(cache.accountPath),
       }).catch(() => {});
       continue;
     }
@@ -2440,6 +2554,7 @@ async function enrichCacheAccountProfiles(caches) {
       window.exporter.patchConversationCacheLabel({
         accountPath: account.path,
         displayName: account.displayName,
+        datasetDir: getViewerDatasetDirForAccountPath(account.path),
       }).catch(() => {});
     }
   } catch {
@@ -2449,7 +2564,9 @@ async function enrichCacheAccountProfiles(caches) {
 
 async function refreshConversationCacheHint() {
   const selectedPath = getSelectedAccountPath();
-  const result = await window.exporter.listConversationCaches();
+  const result = await window.exporter.listConversationCaches({
+    datasetDirs: getConfiguredViewerDatasetDirs(),
+  });
   const allCaches = result.ok && result.caches?.length ? result.caches : [];
   conversationCacheEntries = allCaches;
 
@@ -2547,7 +2664,7 @@ async function handleResetAccountDecryptData() {
 
   const accountPath = getSelectedAccountPath();
   if (!accountPath) {
-    await showFriendlyError('请选择账号', '请先选择微信账号。');
+    await showFriendlyError('请选择账号', '请先选择不信账号。');
     return;
   }
 
@@ -2563,7 +2680,10 @@ async function handleResetAccountDecryptData() {
     return;
   }
 
-  const result = await window.exporter.resetAccountDecryptData({ accountPath });
+  const result = await window.exporter.resetAccountDecryptData({
+    accountPath,
+    datasetDir: getViewerDatasetDirForAccountPath(accountPath),
+  });
   if (!result.ok) {
     await showFriendlyError('重置失败', result.error || '操作失败');
     return;
@@ -2646,7 +2766,7 @@ function applyLocalAppReset({ persistSettingsFile = true } = {}) {
   readinessPanel.classList.add('hidden');
 
   for (const input of document.querySelectorAll('input[name="format"]')) {
-    input.checked = input.value === 'html';
+    input.checked = input.value === 'json';
   }
   if (voiceTranscriptionInput) {
     voiceTranscriptionInput.checked = false;
@@ -2689,7 +2809,11 @@ async function deleteConversationCache(accountPath, scanId) {
     return;
   }
 
-  const result = await window.exporter.clearConversationCache({ accountPath, scanId });
+  const result = await window.exporter.clearConversationCache({
+    accountPath,
+    scanId,
+    datasetDir: getViewerDatasetDirForAccountPath(accountPath),
+  });
   if (!result.ok) {
     await showFriendlyError('删除失败', result.error || '无法删除扫描缓存');
     return;
@@ -2720,36 +2844,19 @@ function applyConversationScanResult(result, { fromCache = false, unchanged = fa
   void refreshSelectionSummary();
 }
 
-function renderOutputGuide(formats) {
-  const items = [];
-  if (formats.includes('html')) {
-    items.push('<strong>index.html</strong> — 用浏览器打开，浏览所有会话');
-    items.push('<strong>chats/*.html</strong> — 每个会话的网页版聊天记录');
-  }
-  if (formats.includes('json')) {
-    items.push('<strong>conversations.json</strong> — 会话索引');
-    items.push('<strong>contacts.json</strong> — 联系人昵称');
-    items.push('<strong>chats/*.json</strong> — 每个会话的完整数据');
-  }
-  if (formats.includes('txt')) {
-    items.push('<strong>chats/*.txt</strong> — 纯文本格式，方便阅读');
-  }
-  if (formats.includes('csv')) {
-    items.push('<strong>messages.csv</strong> — 全部消息汇总，可用 Excel 打开');
-  }
-
-  if (!items.length) {
-    outputGuide.innerHTML = '';
-    return;
-  }
-
+function renderOutputGuide() {
+  const items = [
+    '<strong>conversations.json</strong> — 会话索引',
+    '<strong>contacts.json</strong> — 联系人昵称',
+    '<strong>chats/*.json</strong> — 每个会话的完整数据与图片本地路径',
+  ];
   outputGuide.innerHTML = `<strong>文件说明</strong><ul>${items.map((item) => `<li>${item}</li>`).join('')}</ul>`;
 }
 
 async function useCachedConversations(accountPath = null, scanId = null) {
   const targetPath = accountPath || getSelectedAccountPath();
   if (!targetPath) {
-    await showFriendlyError('请选择账号', '请先选择要导出的微信账号。');
+    await showFriendlyError('请选择账号', '请先选择要导出的不信账号。');
     return;
   }
 
@@ -2766,6 +2873,7 @@ async function useCachedConversations(accountPath = null, scanId = null) {
   const cacheResult = await window.exporter.loadConversationCache({
     accountPath: targetPath,
     scanId: scanId || null,
+    datasetDir: getViewerDatasetDirForAccountPath(targetPath),
   });
   if (!cacheResult.ok || !cacheResult.cache?.conversations?.length) {
     await showFriendlyError('缓存不可用', '未找到该扫描记录，请重新扫描。');
@@ -2801,14 +2909,21 @@ async function scanConversations() {
   const rootDir = wxDirInput.value.trim();
 
   if (!rootDir) {
-    await showFriendlyError('请选择目录', '请选择微信数据目录。');
+    await showFriendlyError('请选择目录', '请选择不信数据目录。');
     return;
   }
 
   const accountPath = getSelectedAccountPath();
   const validation = await validateWxDir(rootDir, accountPath);
   if (!validation || validation.needsAccountSelection || !accountPath) {
-    await showFriendlyError('请选择账号', '请点击头像卡片，选择要导出的微信账号。');
+    await showFriendlyError('请选择账号', '请点击头像卡片，选择要查看的不信账号。');
+    return;
+  }
+
+  const accountKey = getViewerAccountKey(accountPath);
+  const datasetDir = await ensureViewerDatasetDirForAccount(accountKey, { prompt: true });
+  if (!datasetDir) {
+    await showFriendlyError('尚未选择账号数据目录', '请先为当前账号选择数据存放位置，再扫描会话。');
     return;
   }
 
@@ -2817,6 +2932,7 @@ async function scanConversations() {
 
   const requirements = await window.exporter.getScanRequirements({
     accountPath,
+    datasetDir,
     forceDecrypt: false,
   });
   if (!requirements.ok) {
@@ -2842,7 +2958,7 @@ async function scanConversations() {
   startScanElapsedTimer();
 
   const result = await window.exporter.scanConversations(
-    getExportOptions({ clientPreflightOk })
+    getExportOptions({ clientPreflightOk, datasetDir })
   );
 
   scanRunning = false;
@@ -2887,11 +3003,6 @@ async function startExport() {
 
   if (!options.outputDir) {
     await showFriendlyError('请选择保存位置', '请选择导出文件的保存目录。');
-    return;
-  }
-
-  if (!options.formats.length) {
-    await showFriendlyError('请选择导出格式', '至少勾选一种导出格式（JSON / HTML / TXT / CSV）。');
     return;
   }
 
@@ -2956,16 +3067,10 @@ async function startExport() {
     }).catch(() => {});
     resetOutputDirNonEmptyAck();
     lastOutputDir = result.result.outputDir;
-    lastHtmlIndexPath = result.result.htmlIndexPath || '';
     openOutputBtn.disabled = false;
-    if (lastHtmlIndexPath) {
-      openIndexBtn.classList.remove('hidden');
-    } else {
-      openIndexBtn.classList.add('hidden');
-    }
     setProgress(100, '总进度 100% · 导出完成');
     successSummary.textContent = `共导出 ${result.result.conversationCount} 个会话，${formatCount(result.result.totalMessages)} 条消息${result.result.voiceTranscription ? '（含语音转文字）' : ''}。\n文件已保存到：${result.result.outputDir}`;
-    renderOutputGuide(options.formats);
+    renderOutputGuide();
     setStep(5);
     resetExportTaskProgress();
   } else if (result.cancelled) {
@@ -2974,12 +3079,12 @@ async function startExport() {
     if (partial > 0) {
       setProgress(exportDisplayPercent, `已取消 · 已导出 ${partial}/${exportTaskTotal} 个会话`);
       appendLog(`导出已取消。已完成的 ${partial} 个会话文件仍保留在：${outputDir}`);
-      appendLog('未生成完整的 index.html / conversations.json，重新导出可补全。');
+      appendLog('未生成完整的 conversations.json，重新导出可补全。');
       const open = await showConfirmDialog({
         title: '导出已取消',
         message: `已成功导出 ${partial} 个会话，文件保留在所选目录。`,
         detail:
-          '未生成完整的 index.html / conversations.json。如需完整备份，可重新导出（建议选空文件夹，或确认不会覆盖需要的文件）。',
+          '未生成完整的 conversations.json。如需完整备份，可重新导出（建议选空文件夹，或确认不会覆盖需要的文件）。',
         tone: 'guide',
         confirmLabel: '打开文件夹',
         cancelLabel: '知道了',
@@ -3000,7 +3105,7 @@ async function startExport() {
     await showFriendlyError(
       '导出失败',
       result.error,
-      '常见原因：微信未登录、密钥未加载、目录无写入权限。\n建议先打开几个聊天窗口后重试。'
+      '常见原因：不信未登录、密钥未加载、目录无写入权限。\n建议先打开几个聊天窗口后重试。'
     );
   }
 }
@@ -3025,6 +3130,1402 @@ async function initApp() {
   } else {
     void refreshConversationCacheHint();
   }
+}
+
+function setViewerSyncStatus(text, state = 'idle') {
+  viewerSyncStatus.className = `viewer-sync-status ${state}`;
+  viewerSyncStatus.innerHTML = '<i></i>';
+  viewerSyncStatus.append(document.createTextNode(text));
+}
+
+function clearViewerProgressLog() {
+  if (!viewerProgressLog) return;
+  viewerProgressLog.replaceChildren();
+  viewerProgressLog.classList.add('hidden');
+}
+
+function appendViewerProgressLog(message, state = 'idle') {
+  const text = String(message || '').trim();
+  if (!viewerProgressLog || !text) return;
+  const last = viewerProgressLog.lastElementChild;
+  if (last?.dataset.message === text) return;
+  const row = document.createElement('div');
+  row.dataset.message = text;
+  if (state === 'warning') row.className = 'warning';
+  const time = document.createElement('time');
+  time.textContent = new Date().toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  row.append(time, document.createTextNode(text));
+  viewerProgressLog.appendChild(row);
+  while (viewerProgressLog.childElementCount > 8) viewerProgressLog.firstElementChild.remove();
+  viewerProgressLog.classList.remove('hidden');
+  viewerProgressLog.scrollTop = viewerProgressLog.scrollHeight;
+}
+
+function getViewerAccountPath() {
+  return resolvedAccountPath || getSelectedAccountPath();
+}
+
+function getViewerAccountKey(accountPath = getViewerAccountPath()) {
+  const account = scannedAccounts.find((item) => item.path === accountPath);
+  const cachedWxid =
+    (currentConversationCache?.accountPath === accountPath ? currentConversationCache.selfWxid : '') ||
+    conversationCacheEntries.find((item) => item.accountPath === accountPath)?.selfWxid ||
+    '';
+  const wxid = cachedWxid || account?.wxid || '';
+  if (wxid) return `wxid:${wxid}`;
+  return accountPath ? `path:${accountPath.replace(/\\/g, '/').toLowerCase()}` : '';
+}
+
+function loadViewerDatasetDirectoryMap() {
+  try {
+    const value = JSON.parse(localStorage.getItem(JEWELRY_DATASET_KEY) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadViewerDatasetDirForAccount(accountKey) {
+  if (!accountKey) return '';
+  const directoryMap = loadViewerDatasetDirectoryMap();
+  if (directoryMap[accountKey]) return directoryMap[accountKey];
+  const legacyDir = localStorage.getItem(LEGACY_JEWELRY_DATASET_KEY) || '';
+  if (!legacyDir) return '';
+  directoryMap[accountKey] = legacyDir;
+  localStorage.setItem(JEWELRY_DATASET_KEY, JSON.stringify(directoryMap));
+  localStorage.removeItem(LEGACY_JEWELRY_DATASET_KEY);
+  return legacyDir;
+}
+
+function getViewerDatasetDirForAccountPath(accountPath) {
+  return loadViewerDatasetDirForAccount(getViewerAccountKey(accountPath));
+}
+
+function getConfiguredViewerDatasetDirs() {
+  return [...new Set(Object.values(loadViewerDatasetDirectoryMap()).filter(Boolean))];
+}
+
+function saveViewerDatasetDirForAccount(accountKey, dirPath) {
+  if (!accountKey) return;
+  const directoryMap = loadViewerDatasetDirectoryMap();
+  if (dirPath) directoryMap[accountKey] = dirPath;
+  else delete directoryMap[accountKey];
+  localStorage.setItem(JEWELRY_DATASET_KEY, JSON.stringify(directoryMap));
+}
+
+function updateAccountDatasetField(accountPath = selectedAccountPath) {
+  if (!accountDatasetField || !accountDatasetPath || !pickAccountDatasetBtn) return;
+  if (!accountPath) {
+    accountDatasetField.classList.add('hidden');
+    return;
+  }
+  const datasetDir = loadViewerDatasetDirForAccount(getViewerAccountKey(accountPath));
+  accountDatasetField.classList.remove('hidden');
+  accountDatasetField.classList.toggle('missing', !datasetDir);
+  accountDatasetPath.textContent = datasetDir || '尚未选择目录';
+  accountDatasetPath.title = datasetDir;
+  pickAccountDatasetBtn.textContent = datasetDir ? '更改位置' : '选择位置';
+}
+
+async function promptViewerDatasetDirectory(accountKey, defaultPath = '') {
+  if (!accountKey) return '';
+  const dirPath = await window.exporter.pickDirectory({
+    title: '选择当前账号的数据目录',
+    defaultPath: defaultPath || outputDirInput.value.trim() || undefined,
+  });
+  if (!dirPath) return '';
+  saveViewerDatasetDirForAccount(accountKey, dirPath);
+  updateAccountDatasetField();
+  return dirPath;
+}
+
+async function ensureViewerDatasetDirForAccount(accountKey, { prompt = false } = {}) {
+  const datasetDir = loadViewerDatasetDirForAccount(accountKey);
+  if (datasetDir || !prompt) {
+    updateAccountDatasetField();
+    return datasetDir;
+  }
+  return promptViewerDatasetDirectory(accountKey);
+}
+
+async function pickAccountDatasetDirectory() {
+  const accountPath = selectedAccountPath;
+  const accountKey = getViewerAccountKey(accountPath);
+  if (!accountPath || !accountKey) return;
+  const currentDir = loadViewerDatasetDirForAccount(accountKey);
+  const datasetDir = await promptViewerDatasetDirectory(accountKey, currentDir);
+  if (selectedAccountPath !== accountPath) return;
+  if (datasetDir) {
+    accountHint.textContent = '';
+    accountHint.className = 'hint';
+  } else if (!currentDir) {
+    accountHint.textContent = '请先为此账号选择数据集存放位置，再进入群聊记录。';
+    accountHint.className = 'hint error';
+  }
+}
+
+function getViewerGroups() {
+  return conversationItems.filter((item) => item.type === 'group');
+}
+
+function normalizeViewerGroupSearch(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function isOrderedSearchMatch(query, target) {
+  let queryIndex = 0;
+  for (const char of target) {
+    if (char === query[queryIndex]) queryIndex += 1;
+    if (queryIndex === query.length) return true;
+  }
+  return false;
+}
+
+function matchesViewerGroupSearch(group, rawQuery) {
+  const query = normalizeViewerGroupSearch(rawQuery);
+  if (!query) return true;
+  const fallback = normalizeViewerGroupSearch(group.displayName);
+  const keys = viewerGroupSearchKeys.get(group.username) || [fallback];
+  const fuzzyPinyin = /^[a-z0-9]+$/.test(query) && query.length >= 2;
+  return keys.some((key) => key.includes(query) || fuzzyPinyin && isOrderedSearchMatch(query, key));
+}
+
+async function refreshViewerGroupSearchIndex() {
+  const token = ++viewerGroupSearchIndexToken;
+  const groups = getViewerGroups();
+  viewerGroupSearchKeys = new Map();
+  const result = await window.exporter.buildPinyinSearchIndex({
+    items: groups.map((group) => ({ id: group.username, text: group.displayName })),
+  });
+  if (token !== viewerGroupSearchIndexToken || !result.ok) return;
+  viewerGroupSearchKeys = new Map(
+    (result.items || []).map((item) => [item.id, Array.isArray(item.keys) ? item.keys : []])
+  );
+}
+
+function getViewerDateRange() {
+  const start = viewerStartDate.value
+    ? Math.floor(new Date(`${viewerStartDate.value}T00:00:00`).getTime() / 1000)
+    : null;
+  const endExclusive = viewerEndDate.value
+    ? Math.floor(new Date(`${viewerEndDate.value}T00:00:00`).getTime() / 1000) + SECONDS_PER_DAY
+    : null;
+  return { start, endExclusive };
+}
+
+function getViewerSenderFilter() {
+  return viewerSelectedMembers == null ? null : [...viewerSelectedMembers];
+}
+
+function saveCurrentViewerSyncOption() {
+  if (!viewerSelectedGroup) return;
+  const { start, endExclusive } = getViewerDateRange();
+  viewerGroupSyncOptions.set(viewerSelectedGroup.username, {
+    username: viewerSelectedGroup.username,
+    displayName: viewerSelectedGroup.displayName,
+    senderWxids: getViewerSenderFilter(),
+    startTime: start,
+    endTime: endExclusive == null ? null : endExclusive - 1,
+    startDate: viewerStartDate.value || '',
+    endDate: viewerEndDate.value || '',
+    includeText: viewerSyncText.checked,
+    includeImages: viewerSyncImages.checked,
+  });
+}
+
+function restoreViewerSyncOption(group) {
+  const option = viewerGroupSyncOptions.get(group.username);
+  viewerStartDate.value = option?.startDate || '';
+  viewerEndDate.value = option?.endDate || '';
+  viewerSyncText.checked = option?.includeText !== false;
+  viewerSyncImages.checked = option?.includeImages !== false;
+  viewerSelectedMembers = Array.isArray(option?.senderWxids) ? new Set(option.senderWxids) : null;
+}
+
+function getViewerDatasetSelections() {
+  saveCurrentViewerSyncOption();
+  return getViewerGroups()
+    .filter((group) => viewerSelectedGroups.has(group.username))
+    .map((group) => viewerGroupSyncOptions.get(group.username) || {
+      username: group.username,
+      displayName: group.displayName,
+      senderWxids: null,
+      startTime: null,
+      endTime: null,
+      includeText: true,
+      includeImages: true,
+    });
+}
+
+function getCurrentViewerDatasetSelection() {
+  if (!viewerSelectedGroup) return null;
+  saveCurrentViewerSyncOption();
+  return viewerGroupSyncOptions.get(viewerSelectedGroup.username) || null;
+}
+
+function updateViewerExportState() {
+  viewerOpenReviewBtn.disabled = !viewerDatasetDir || viewerDatasetSyncing;
+}
+
+function renderViewerGroups() {
+  const query = viewerGroupSearch.value.trim();
+  const groups = getViewerGroups().filter((group) =>
+    matchesViewerGroupSearch(group, query)
+  );
+  viewerGroupCount.textContent = String(getViewerGroups().length);
+  viewerSelectAllGroups.checked = viewerSelectedGroups.size === getViewerGroups().length && getViewerGroups().length > 0;
+  viewerSelectAllGroups.indeterminate = viewerSelectedGroups.size > 0 && viewerSelectedGroups.size < getViewerGroups().length;
+  viewerGroupList.replaceChildren();
+
+  if (!groups.length) {
+    const empty = document.createElement('div');
+    empty.className = 'viewer-empty';
+    empty.textContent = query ? '没有匹配的群聊' : '未找到群聊记录';
+    viewerGroupList.appendChild(empty);
+    return;
+  }
+
+  for (const group of groups) {
+    const button = document.createElement('div');
+    button.className = 'viewer-group-item';
+    button.classList.toggle('active', group.username === viewerSelectedGroup?.username);
+    button.dataset.username = group.username;
+    button.tabIndex = 0;
+    button.setAttribute('role', 'button');
+
+    const selected = document.createElement('input');
+    selected.type = 'checkbox';
+    selected.checked = viewerSelectedGroups.has(group.username);
+    selected.setAttribute('aria-label', `选择群聊 ${group.displayName}`);
+    selected.addEventListener('click', (event) => event.stopPropagation());
+    selected.addEventListener('change', () => {
+      if (selected.checked) viewerSelectedGroups.add(group.username);
+      else viewerSelectedGroups.delete(group.username);
+      renderViewerGroups();
+      updateViewerExportState();
+    });
+
+    const avatar = document.createElement('span');
+    avatar.className = 'viewer-avatar';
+    avatar.textContent = Array.from(group.displayName || '群')[0] || '群';
+    const copy = document.createElement('span');
+    copy.className = 'viewer-group-copy';
+    const name = document.createElement('strong');
+    name.textContent = group.displayName;
+    const meta = document.createElement('span');
+    meta.textContent = `${formatCount(group.messageCount)} 条消息${viewerConfirmedGroups.has(group.username) ? ' · 已确认' : ''}`;
+    copy.append(name, meta);
+    button.append(selected, avatar, copy);
+    button.addEventListener('click', () => void selectViewerGroup(group));
+    button.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        void selectViewerGroup(group);
+      }
+    });
+    viewerGroupList.appendChild(button);
+  }
+}
+
+function renderViewerMembers() {
+  const query = viewerMemberSearch.value.trim().toLowerCase();
+  viewerMemberCount.textContent = String(viewerMembers.length);
+  viewerMemberList.replaceChildren();
+  viewerSelectAllMembers.checked = viewerSelectedMembers == null;
+  viewerSelectAllMembers.indeterminate =
+    viewerSelectedMembers instanceof Set &&
+    viewerSelectedMembers.size > 0 &&
+    viewerSelectedMembers.size < viewerMembers.length;
+
+  for (const member of viewerMembers) {
+    if (query && !member.displayName.toLowerCase().includes(query) && !member.wxid.toLowerCase().includes(query)) {
+      continue;
+    }
+    const label = document.createElement('label');
+    label.className = 'viewer-member-item';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = viewerSelectedMembers == null || viewerSelectedMembers.has(member.wxid);
+    input.dataset.wxid = member.wxid;
+    const name = document.createElement('span');
+    name.textContent = member.isSelf ? `${member.displayName}（我）` : member.displayName;
+    const count = document.createElement('small');
+    count.textContent = formatCount(member.messageCount);
+    input.addEventListener('change', () => {
+      if (viewerSelectedMembers == null) {
+        viewerSelectedMembers = new Set(viewerMembers.map((item) => item.wxid));
+      }
+      if (input.checked) viewerSelectedMembers.add(member.wxid);
+      else viewerSelectedMembers.delete(member.wxid);
+      if (viewerSelectedMembers.size === viewerMembers.length) viewerSelectedMembers = null;
+      saveCurrentViewerSyncOption();
+      renderViewerMembers();
+      scheduleViewerReload();
+    });
+    label.append(input, name, count);
+    viewerMemberList.appendChild(label);
+  }
+  updateViewerExportState();
+}
+
+function openViewerLightbox(url) {
+  viewerLightboxImage.src = url;
+  viewerLightbox.classList.remove('hidden');
+  viewerLightboxClose.focus();
+}
+
+function closeViewerLightbox() {
+  viewerLightbox.classList.add('hidden');
+  viewerLightboxImage.removeAttribute('src');
+}
+
+function getViewerMessageContent(message) {
+  const recordItems = message?.extra?.kind === 'note' && Array.isArray(message.extra.recordItems)
+    ? message.extra.recordItems
+    : [];
+  const recordText = recordItems
+    .filter((item) => item?.kind === 'text')
+    .map((item) => String(item.dataDesc || '').trim())
+    .filter(Boolean)
+    .join('\n');
+  return recordText || message?.content || '';
+}
+
+function getViewerExpectedImageCount(message) {
+  let count = Number(message?.type) === 3 || message?.extra?.kind === 'image' ? 1 : 0;
+  count += (message?.extra?.recordItems || []).filter((item) => item?.kind === 'image').length;
+  return count;
+}
+function renderViewerMessages() {
+  viewerMessageList.replaceChildren();
+  viewerLoadOlderBtn.classList.toggle('hidden', !viewerHasMore || viewerLoading);
+  if (!viewerSelectedGroup) {
+    const empty = document.createElement('div');
+    empty.className = 'viewer-empty';
+    empty.textContent = '选择群聊并确认后，才会读取本地解密消息和图片';
+    viewerMessageList.appendChild(empty);
+    return;
+  }
+  const visibleMessages = viewerImagesOnly
+    ? viewerMessages.filter(viewerMessageHasImage)
+    : viewerMessages;
+  if (!visibleMessages.length) {
+    const empty = document.createElement('div');
+    empty.className = 'viewer-empty';
+    empty.textContent = viewerLoading ? '正在读取记录…' : '当前筛选条件下没有消息';
+    viewerMessageList.appendChild(empty);
+    return;
+  }
+
+  for (const message of visibleMessages) {
+    const images = Array.isArray(message.previewImages) ? message.previewImages : [];
+    const expectedImageCount = getViewerExpectedImageCount(message);
+    const row = document.createElement('article');
+    row.className = 'viewer-message';
+    row.classList.toggle('has-image', images.length > 0 || message.type === 3);
+    const time = document.createElement('time');
+    time.className = 'viewer-message-time';
+    time.dateTime = message.datetime || '';
+    time.textContent = message.datetime?.slice(11, 16) || '';
+    const marker = document.createElement('span');
+    marker.className = 'viewer-message-marker';
+    const body = document.createElement('div');
+    body.className = 'viewer-message-body';
+    const sender = document.createElement('p');
+    sender.className = 'viewer-message-sender';
+    sender.textContent = `${message.senderName || message.senderWxid || '未知发送人'} · ${message.datetime?.slice(0, 10) || ''}`;
+    body.appendChild(sender);
+
+    const messageContent = getViewerMessageContent(message);
+    if (messageContent && !(images.length > 0 && messageContent === '[图片]')) {
+      const content = document.createElement('div');
+      content.className = 'viewer-message-content';
+      content.textContent = messageContent;
+      body.appendChild(content);
+    }
+    if (images.length > 0) {
+      const grid = document.createElement('div');
+      grid.className = 'viewer-image-grid';
+      for (const preview of images) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'viewer-image-button';
+        button.title = '查看原图';
+        const image = document.createElement('img');
+        image.src = preview.url;
+        image.alt = (message.senderName || '群成员') + '发送的图片';
+        image.loading = 'lazy';
+        button.appendChild(image);
+        button.addEventListener('click', () => openViewerLightbox(preview.url));
+        grid.appendChild(button);
+      }
+      body.appendChild(grid);
+    }
+    if (expectedImageCount > images.length) {
+      const state = document.createElement('div');
+      state.className = 'viewer-image-state ' + (images.length > 0 ? 'partial' : 'unavailable');
+      state.textContent = message.imageLoadState === 'loading'
+        ? '图片加载中…'
+        : '已加载 ' + images.length + '/' + expectedImageCount + ' 张，本地仍缺 ' +
+          (expectedImageCount - images.length) + ' 张';
+      state.setAttribute('aria-live', 'polite');
+      body.appendChild(state);
+    } else if (!images.length && message.imageLoadState) {
+      const state = document.createElement('div');
+      state.className = 'viewer-image-state ' + message.imageLoadState;
+      state.textContent = message.imageLoadState === 'loading' ? '图片加载中…' : '图片暂时无法读取';
+      state.setAttribute('aria-live', 'polite');
+      body.appendChild(state);
+    }    row.append(time, marker, body);
+    viewerMessageList.appendChild(row);
+  }
+}
+
+function getViewerMessageKey(message) {
+  return `${message.createTime}:${message.id}:${message.serverId || ''}`;
+}
+
+function viewerMessageHasImage(message) {
+  return (
+    Number(message?.type) === 3 ||
+    message?.extra?.kind === 'image' ||
+    (Array.isArray(message?.extra?.recordItems) &&
+      message.extra.recordItems.some((item) => item?.kind === 'image'))
+  );
+}
+
+async function resolveViewerMessageImages(messages, token, { datasetDir = viewerDatasetDir } = {}) {
+  if (!viewerGroupLoadConfirmed) return;
+  const imageMessages = (messages || []).filter(viewerMessageHasImage);
+  if (!imageMessages.length) return;
+  const previousHeight = viewerMessageScroller.scrollHeight;
+  const wasNearBottom =
+    viewerMessageScroller.scrollHeight - viewerMessageScroller.scrollTop - viewerMessageScroller.clientHeight < 80;
+  appendViewerProgressLog(`正在加载 ${imageMessages.length} 条消息的本地图片`);
+  const result = await window.exporter.resolveConversationImages({
+    wxDir: getViewerAccountPath(),
+    username: viewerSelectedGroup?.username,
+    messages: imageMessages,
+    datasetDir: datasetDir || null,
+    existingOnly: true,
+    progressMeta: {
+      scope: 'viewer',
+      username: viewerSelectedGroup?.username,
+      displayName: viewerSelectedGroup?.displayName,
+    },
+  });
+  if (token !== viewerRequestToken) return;
+  const requestedKeys = new Set(imageMessages.map(getViewerMessageKey));
+  if (!result.ok) {
+    for (const message of viewerMessages) {
+      if (requestedKeys.has(getViewerMessageKey(message))) message.imageLoadState = 'unavailable';
+    }
+    renderViewerMessages();
+    setViewerSyncStatus('消息已读取，部分图片无法读取', 'warning');
+    appendViewerProgressLog(result.error || '部分图片无法读取', 'warning');
+    return;
+  }
+  const previews = new Map(
+    (result.result.previews || []).map((item) => [getViewerMessageKey(item), item.previewImages || []])
+  );
+  for (const message of viewerMessages) {
+    const resolved = previews.get(getViewerMessageKey(message));
+    if (!resolved) {
+      if (requestedKeys.has(getViewerMessageKey(message))) message.imageLoadState = 'unavailable';
+      continue;
+    }
+    message.previewImages = resolved;
+    message.imageLoadState = resolved.length > 0 ? 'ready' : 'unavailable';
+  }
+  renderViewerMessages();
+  if (wasNearBottom) {
+    viewerMessageScroller.scrollTop = viewerMessageScroller.scrollHeight;
+  } else {
+    viewerMessageScroller.scrollTop += viewerMessageScroller.scrollHeight - previousHeight;
+  }
+  setViewerSyncStatus(`已读取 ${viewerSelectedGroup?.displayName || '群聊'} 的消息和图片`, 'ready');
+}
+
+async function loadViewerMembers(token) {
+  if (!viewerSelectedGroup || !viewerGroupLoadConfirmed) return;
+  const savedOption = viewerGroupSyncOptions.get(viewerSelectedGroup.username);
+  viewerMembers = [];
+  viewerSelectedMembers = Array.isArray(savedOption?.senderWxids) ? new Set(savedOption.senderWxids) : null;
+  renderViewerMembers();
+  const result = await window.exporter.listGroupMembers({
+    wxDir: getViewerAccountPath(),
+    datasetDir: viewerDatasetDir,
+    username: viewerSelectedGroup.username,
+  });
+  if (token !== viewerRequestToken) return;
+  if (!result.ok) {
+    setViewerSyncStatus(result.error || '成员读取失败', 'warning');
+    return;
+  }
+  viewerMembers = result.result.members || [];
+  viewerSelectedMembers = Array.isArray(savedOption?.senderWxids) ? new Set(savedOption.senderWxids) : null;
+  renderViewerMembers();
+  if (viewerSelectedGroup) {
+    viewerConversationMeta.textContent = `${formatCount(viewerMessages.length)} 条已加载 · ${viewerMembers.length} 位发言成员`;
+  }
+}
+
+async function loadViewerMessages({ older = false, resolveImages = true } = {}) {
+  if (!viewerSelectedGroup || !viewerGroupLoadConfirmed || viewerLoading) return;
+  if (viewerSelectedMembers instanceof Set && viewerSelectedMembers.size === 0) {
+    viewerMessages = [];
+    viewerHasMore = false;
+    renderViewerMessages();
+    updateViewerExportState();
+    return;
+  }
+  const { start, endExclusive } = getViewerDateRange();
+  if (start != null && endExclusive != null && start >= endExclusive) {
+    viewerMessages = [];
+    viewerHasMore = false;
+    renderViewerMessages();
+    setViewerSyncStatus('日期范围无效', 'warning');
+    return;
+  }
+
+  const token = viewerRequestToken;
+  const oldHeight = viewerMessageScroller.scrollHeight;
+  const cursor = older
+    ? viewerNextCursor
+    : endExclusive != null
+      ? { beforeTime: endExclusive, beforeLocalId: Number.MAX_SAFE_INTEGER }
+      : null;
+  viewerLoading = true;
+  viewerLoadOlderBtn.disabled = true;
+  if (!older) {
+    viewerMessages = [];
+    renderViewerMessages();
+  }
+  updateViewerExportState();
+
+  const result = await window.exporter.loadConversationMessages({
+    wxDir: getViewerAccountPath(),
+    datasetDir: viewerDatasetDir,
+    username: viewerSelectedGroup.username,
+    cursor,
+    limit: 100,
+    senderWxids: getViewerSenderFilter(),
+    startTime: start,
+  });
+  if (token !== viewerRequestToken) return;
+  viewerLoading = false;
+  viewerLoadOlderBtn.disabled = false;
+  updateViewerExportState();
+
+  if (!result.ok) {
+    viewerMessages = older ? viewerMessages : [];
+    viewerHasMore = false;
+    renderViewerMessages();
+    setViewerSyncStatus(result.error || '消息读取失败', 'warning');
+    return;
+  }
+
+  const page = result.result;
+  const incoming = page.messages || [];
+  for (const message of incoming) {
+    if (viewerSyncImages.checked && viewerMessageHasImage(message)) message.imageLoadState = 'loading';
+  }
+  const combined = older ? [...incoming, ...viewerMessages] : incoming;
+  const seen = new Set();
+  viewerMessages = combined.filter((message) => {
+    const key = `${message.createTime}:${message.id}:${message.serverId || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  viewerNextCursor = page.nextCursor || null;
+  viewerHasMore = Boolean(page.hasMore);
+  viewerConversationMeta.textContent = `${formatCount(viewerMessages.length)} 条已加载 · ${viewerMembers.length || '—'} 位发言成员`;
+  renderViewerMessages();
+  const hasImages = viewerSyncImages.checked && incoming.some(viewerMessageHasImage);
+  setViewerSyncStatus(
+    hasImages ? '消息已读取，正在加载图片' : `已读取 ${viewerSelectedGroup.displayName} 的消息`,
+    hasImages ? 'syncing' : 'ready'
+  );
+  if (older) {
+    viewerMessageScroller.scrollTop += viewerMessageScroller.scrollHeight - oldHeight;
+  } else {
+    viewerMessageScroller.scrollTop = viewerMessageScroller.scrollHeight;
+  }
+  if (resolveImages && hasImages) void resolveViewerMessageImages(incoming, token);
+}
+
+function scheduleViewerReload() {
+  if (!viewerGroupLoadConfirmed) return;
+  clearTimeout(viewerFilterTimer);
+  viewerFilterTimer = setTimeout(async () => {
+    viewerRequestToken += 1;
+    const token = viewerRequestToken;
+    viewerNextCursor = null;
+    viewerLoading = false;
+    await loadViewerMessages({ resolveImages: false });
+    if (token !== viewerRequestToken) return;
+    const selection = getCurrentViewerDatasetSelection();
+    if (selection) {
+      await queueViewerDatasetSync({ selections: [selection], token, resolvePreviews: true });
+    }
+  }, 180);
+}
+
+async function selectViewerGroup(group) {
+  if (!group || group.username === viewerSelectedGroup?.username && viewerGroupLoadConfirmed) return;
+  const confirmed = await showConfirmDialog({
+    title: `读取「${group.displayName}」`,
+    message: '确认后才会读取这个群聊的本地解密消息、成员信息和图片。',
+    detail: '读取仅在本机进行；数据目录按当前不信账号独立保存。',
+    tone: 'guide',
+    confirmLabel: '确认并读取',
+    cancelLabel: '暂不读取',
+  });
+  if (!confirmed) return;
+  clearViewerProgressLog();
+  appendViewerProgressLog(`开始读取「${group.displayName}」的消息和图片`);
+  saveCurrentViewerSyncOption();
+  viewerSelectedGroup = group;
+  viewerMediaFingerprint = null;
+  viewerGroupLoadConfirmed = true;
+  viewerConfirmedGroups.add(group.username);
+  viewerSelectedGroups.add(group.username);
+  viewerRequestToken += 1;
+  const token = viewerRequestToken;
+  viewerMessages = [];
+  viewerNextCursor = null;
+  viewerHasMore = false;
+  viewerMembers = [];
+  restoreViewerSyncOption(group);
+  viewerLoading = false;
+  viewerConversationTitle.textContent = group.displayName;
+  viewerConversationMeta.textContent = `${formatCount(group.messageCount)} 条消息`;
+  renderViewerGroups();
+  renderViewerMembers();
+  renderViewerMessages();
+  updateViewerExportState();
+  setViewerSyncStatus(`正在读取 ${group.displayName}`, 'syncing');
+  startViewerAutoSync();
+  await Promise.all([loadViewerMessages({ resolveImages: false }), loadViewerMembers(token)]);
+  if (token !== viewerRequestToken) return;
+  const selection = getCurrentViewerDatasetSelection();
+  if (selection) {
+    await queueViewerDatasetSync({ selections: [selection], token, resolvePreviews: true });
+  }
+}
+
+async function syncViewerLatest() {
+  if (!viewerIsOpen || !viewerGroupLoadConfirmed || viewerSyncing) return;
+  const accountPath = getViewerAccountPath();
+  if (!accountPath) return;
+  viewerSyncing = true;
+  viewerRefreshBtn.disabled = true;
+  setViewerSyncStatus('正在检查并读取本机新记录', 'syncing');
+  const result = await window.exporter.scanConversations({
+    wxDir: wxDirInput.value.trim(),
+    accountPath,
+    datasetDir: viewerDatasetDir,
+    selfWxid: null,
+    forceDecrypt: false,
+    loginCapture: false,
+    clientPreflightOk: true,
+  });
+  viewerSyncing = false;
+  viewerRefreshBtn.disabled = false;
+
+  if (!result.ok) {
+    setViewerSyncStatus(result.error || '新记录读取失败', 'warning');
+    return;
+  }
+
+  conversationItems = result.conversations || conversationItems;
+  if (viewerSelectedGroup) {
+    viewerSelectedGroup = conversationItems.find((item) => item.username === viewerSelectedGroup.username) || null;
+  }
+  await refreshViewerGroupSearchIndex();
+  renderViewerGroups();
+  const status = await window.exporter.getDataStatus({
+    accountPath,
+    datasetDir: viewerDatasetDir,
+    username: viewerSelectedGroup?.username || null,
+  });
+  if (status.ok) {
+    viewerFingerprint = status.fingerprint;
+    viewerMediaFingerprint = status.mediaFingerprint;
+  }
+  if (status.ok && status.needsSync) {
+    setViewerSyncStatus('需要手动重新扫描', 'warning');
+  } else {
+    setViewerSyncStatus(`本机记录已更新 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`, 'ready');
+  }
+  if (viewerSelectedGroup) {
+    viewerRequestToken += 1;
+    const token = viewerRequestToken;
+    await Promise.all([loadViewerMessages({ resolveImages: false }), loadViewerMembers(token)]);
+    if (token === viewerRequestToken) {
+      const selection = getCurrentViewerDatasetSelection();
+      if (selection) {
+        await queueViewerDatasetSync({ selections: [selection], force: true, token, resolvePreviews: true });
+      }
+    }
+  }
+}
+
+async function checkViewerDataStatus() {
+  if (!viewerIsOpen || !viewerGroupLoadConfirmed || viewerSyncing || viewerDatasetSyncing) return;
+  const accountPath = getViewerAccountPath();
+  const username = viewerSelectedGroup?.username || null;
+  if (!accountPath || !username) return;
+  const status = await window.exporter.getDataStatus({
+    accountPath,
+    datasetDir: viewerDatasetDir,
+    username,
+  });
+  if (!status.ok) {
+    setViewerSyncStatus(status.error || '无法检查数据', 'warning');
+    return;
+  }
+
+  const recordsChanged = viewerFingerprint != null && viewerFingerprint !== status.fingerprint;
+  const mediaChanged =
+    viewerMediaFingerprint != null &&
+    status.mediaFingerprint != null &&
+    viewerMediaFingerprint !== status.mediaFingerprint;
+  viewerFingerprint = status.fingerprint;
+
+  if (recordsChanged || status.needsSync) {
+    viewerMediaFingerprint = status.mediaFingerprint;
+    setViewerSyncStatus('检测到新记录，可手动刷新', 'warning');
+    return;
+  }
+
+  if (mediaChanged && viewerSyncImages.checked) {
+    viewerMediaFingerprint = status.mediaFingerprint;
+    const selection = getCurrentViewerDatasetSelection();
+    if (selection) {
+      const token = viewerRequestToken;
+      setViewerSyncStatus('检测到本地图片更新，正在补充缺失图片', 'syncing');
+      appendViewerProgressLog('检测到本地图片缓存更新，只重试当前群缺失图片');
+      await queueViewerDatasetSync({ selections: [selection], force: true, token, resolvePreviews: true });
+      return;
+    }
+  }
+
+  if (viewerMediaFingerprint == null) {
+    viewerMediaFingerprint = status.mediaFingerprint;
+  }
+  if (mediaChanged) {
+    setViewerSyncStatus('检测到本地图片更新，启用图片后自动补充', 'warning');
+    return;
+  }
+  setViewerSyncStatus('本机记录已是最新', 'ready');
+}
+
+function startViewerAutoSync() {
+  clearInterval(viewerSyncTimer);
+  if (viewerAutoSync.checked) void checkViewerDataStatus();
+  viewerSyncTimer = setInterval(() => {
+    if (viewerAutoSync.checked) void checkViewerDataStatus();
+  }, VIEWER_SYNC_INTERVAL_MS);
+}
+
+async function openRecordViewer() {
+  const groups = getViewerGroups();
+  if (!groups.length) {
+    await showFriendlyError('没有群聊记录', '请先完成会话扫描，确认当前账号存在群聊消息。');
+    return;
+  }
+  const accountKey = getViewerAccountKey();
+  const datasetDir = await ensureViewerDatasetDirForAccount(accountKey, { prompt: true });
+  if (!datasetDir) {
+    await showFriendlyError('尚未选择账号数据目录', '请先为当前账号选择数据存放位置，再进入群聊记录。');
+    return;
+  }
+  if (viewerActiveAccountKey && viewerActiveAccountKey !== accountKey) viewerGroupSyncOptions.clear();
+  viewerActiveAccountKey = accountKey;
+  viewerRequestToken += 1;
+  viewerSelectedGroup = null;
+  viewerGroupLoadConfirmed = false;
+  viewerConfirmedGroups = new Set();
+  viewerSelectedGroups = new Set();
+  viewerMembers = [];
+  viewerSelectedMembers = null;
+  viewerMessages = [];
+  viewerNextCursor = null;
+  viewerHasMore = false;
+  viewerLoading = false;
+  await refreshViewerGroupSearchIndex();
+  viewerIsOpen = true;
+  recordViewer.classList.remove('hidden');
+  setViewerDatasetDir(datasetDir, { persist: false });
+  const accountPath = getViewerAccountPath();
+  const account = scannedAccounts.find((item) => item.path === accountPath);
+  viewerAccountName.textContent = account?.displayName || currentConversationCache?.displayName || '本地不信数据';
+  viewerConversationTitle.textContent = '选择一个群聊';
+  viewerConversationMeta.textContent = '确认后才读取本地解密消息和图片';
+  setViewerSyncStatus('尚未读取群聊数据', 'idle');
+  clearViewerProgressLog();
+  renderViewerGroups();
+  renderViewerMembers();
+  renderViewerMessages();
+  updateViewerExportState();
+}
+
+function closeRecordViewer() {
+  saveCurrentViewerSyncOption();
+  viewerIsOpen = false;
+  viewerRequestToken += 1;
+  viewerSelectedGroup = null;
+  viewerGroupLoadConfirmed = false;
+  viewerConfirmedGroups = new Set();
+  viewerLoading = false;
+  clearInterval(viewerSyncTimer);
+  viewerSyncTimer = null;
+  recordViewer.classList.add('hidden');
+  closeClassificationReview();
+  closeViewerLightbox();
+}
+
+function setViewerDatasetDir(dirPath, { persist = true } = {}) {
+  const nextDir = dirPath || '';
+  if (viewerDatasetDir !== nextDir) viewerDatasetSyncSignatures.clear();
+  viewerDatasetDir = nextDir;
+  viewerDatasetPath.textContent = viewerDatasetDir || '此账号尚未选择目录';
+  viewerDatasetPath.title = viewerDatasetDir;
+  if (persist) saveViewerDatasetDirForAccount(viewerActiveAccountKey || getViewerAccountKey(), viewerDatasetDir);
+  updateViewerExportState();
+}
+
+async function pickViewerDatasetDirectory() {
+  const accountKey = viewerActiveAccountKey || getViewerAccountKey();
+  const dirPath = await promptViewerDatasetDirectory(accountKey, viewerDatasetDir);
+  if (dirPath) setViewerDatasetDir(dirPath, { persist: false });
+}
+
+async function ensureJewelryTaxonomy() {
+  if (jewelryProductCategories.length && jewelryProcesses.length) return true;
+  const result = await window.exporter.getJewelryTaxonomy();
+  if (!result.ok) {
+    await showFriendlyError('分类选项读取失败', result.error || '无法读取珠宝分类选项');
+    return false;
+  }
+  jewelryProductCategories = result.productCategories || [];
+  jewelryProcesses = result.processes || [];
+  return true;
+}
+
+async function ensureJewelryCodexConsent() {
+  if (localStorage.getItem(JEWELRY_CONSENT_KEY) === 'accepted') return true;
+  const confirmed = await showConfirmDialog({
+    title: '提交 Codex 图片识别',
+    message: '所选图片和聊天上下文将提交给 Codex 进行分类。',
+    detail: '自动保存不会提交；仅在手动点击“识别所选”后使用 Codex 额度。',
+    tone: 'warn',
+    confirmLabel: '提交所选图片',
+    cancelLabel: '取消',
+  });
+  if (confirmed) localStorage.setItem(JEWELRY_CONSENT_KEY, 'accepted');
+  return confirmed;
+}
+
+function getViewerDatasetSyncSignature(selection, context = null) {
+  return JSON.stringify({
+    accountKey: context ? context.accountKey : viewerActiveAccountKey,
+    datasetDir: context ? context.datasetDir : viewerDatasetDir,
+    fingerprint: context ? context.fingerprint : viewerFingerprint,
+    ...selection,
+    senderWxids: Array.isArray(selection.senderWxids) ? [...selection.senderWxids].sort() : null,
+  });
+}
+
+function queueViewerDatasetSync(options = {}) {
+  const context = {
+    accountKey: viewerActiveAccountKey,
+    accountPath: getViewerAccountPath(),
+    accountName: viewerAccountName.textContent,
+    datasetDir: viewerDatasetDir,
+    fingerprint: viewerFingerprint,
+    selfWxid: currentConversationCache?.selfWxid || null,
+    confirmedUsernames: new Set(viewerConfirmedGroups),
+  };
+  const job = viewerDatasetSyncChain.then(() => syncViewerDataset({ ...options, context }));
+  viewerDatasetSyncChain = job.catch(() => {});
+  return job;
+}
+
+async function syncViewerDataset({
+  selections: requestedSelections = null,
+  force = false,
+  token = viewerRequestToken,
+  resolvePreviews = false,
+  context = null,
+} = {}) {
+  const syncContext = context || {
+    accountKey: viewerActiveAccountKey,
+    accountPath: getViewerAccountPath(),
+    accountName: viewerAccountName.textContent,
+    datasetDir: viewerDatasetDir,
+    fingerprint: viewerFingerprint,
+    selfWxid: currentConversationCache?.selfWxid || null,
+    confirmedUsernames: new Set(viewerConfirmedGroups),
+  };
+  if (!syncContext.datasetDir) return false;
+  const isActiveContext = () =>
+    viewerIsOpen &&
+    viewerActiveAccountKey === syncContext.accountKey &&
+    viewerDatasetDir === syncContext.datasetDir;
+  let selections = requestedSelections || getViewerDatasetSelections();
+  if (!selections.length) {
+    return false;
+  }
+  const unconfirmed = selections.filter((item) => !syncContext.confirmedUsernames.has(item.username));
+  if (unconfirmed.length) {
+    return false;
+  }
+  if (selections.some((item) => !item.includeText && !item.includeImages)) {
+    await showFriendlyError('未选择保存内容', '每个群聊至少需要选择文本消息或图片内容。');
+    return false;
+  }
+  if (selections.some((item) => Array.isArray(item.senderWxids) && item.senderWxids.length === 0)) {
+    await showFriendlyError('未选择群成员', '每个群聊至少需要选择一位成员，或勾选全部成员。');
+    return false;
+  }
+  if (selections.some((item) => item.startTime && item.endTime && item.startTime > item.endTime)) {
+    await showFriendlyError('日期范围无效', '开始日期不能晚于结束日期。');
+    return false;
+  }
+  selections = selections.filter((selection) =>
+    force || viewerDatasetSyncSignatures.get(selection.username) !== getViewerDatasetSyncSignature(selection, syncContext)
+  );
+  if (!selections.length) {
+    if (resolvePreviews && viewerSyncImages.checked && token === viewerRequestToken && isActiveContext()) {
+      await resolveViewerMessageImages(viewerMessages, token);
+    }
+    return true;
+  }
+  viewerDatasetSyncing = true;
+  updateViewerExportState();
+  if (isActiveContext()) {
+    setViewerSyncStatus('正在自动保存到 SQLite 数据集', 'syncing');
+    appendViewerProgressLog(`开始自动保存 ${selections.length} 个群聊`);
+  }
+  let result;
+  try {
+    result = await window.exporter.syncJewelryDataset({
+      wxDir: syncContext.accountPath,
+      datasetDir: syncContext.datasetDir,
+      selfWxid: syncContext.selfWxid,
+      accountName: syncContext.accountName,
+      forceImageResolve: force,
+      selections,
+    });
+  } catch (err) {
+    result = { ok: false, error: err.message };
+  } finally {
+    viewerDatasetSyncing = false;
+    updateViewerExportState();
+  }
+  if (!result.ok) {
+    if (isActiveContext()) {
+      setViewerSyncStatus(result.error || 'SQLite 数据集自动保存失败', 'warning');
+      appendViewerProgressLog(result.error || 'SQLite 数据集自动保存失败', 'warning');
+    }
+    return false;
+  }
+  const synced = result.result;
+  const activeAtCompletion = isActiveContext();
+  if (activeAtCompletion) {
+    syncContext.datasetDir = synced.datasetDir;
+    setViewerDatasetDir(synced.datasetDir);
+  }
+  for (const selection of selections) {
+    viewerDatasetSyncSignatures.set(selection.username, getViewerDatasetSyncSignature(selection, syncContext));
+  }
+  if (!activeAtCompletion) return true;
+  setViewerSyncStatus(
+    `已自动保存 ${synced.syncedMessages} 条消息${synced.syncedImages ? `，${synced.syncedImages} 张图片` : ""}`,
+    'ready'
+  );
+  appendViewerProgressLog(
+    `自动保存完成：新增 ${synced.syncedMessages} 条消息，解析 ${synced.syncedImages} 张图片`
+  );
+  if (resolvePreviews && viewerSyncImages.checked && token === viewerRequestToken && isActiveContext()) {
+    await resolveViewerMessageImages(viewerMessages, token, { datasetDir: synced.datasetDir });
+  }
+  return true;
+}
+
+function replaceSelectOptions(select, entries, firstLabel, valueKey = 'id', labelKey = 'name') {
+  const current = select.value;
+  select.replaceChildren();
+  const first = document.createElement('option');
+  first.value = '';
+  first.textContent = firstLabel;
+  select.appendChild(first);
+  for (const entry of entries) {
+    const option = document.createElement('option');
+    option.value = entry[valueKey];
+    option.textContent = entry[labelKey];
+    select.appendChild(option);
+  }
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+function renderBatchProcessOptions() {
+  viewerBatchProcesses.replaceChildren();
+  for (const process of jewelryProcesses) {
+    const label = document.createElement('label');
+    label.className = 'classification-option';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = process.id;
+    input.addEventListener('change', () => {
+      if (input.checked) viewerBatchNoProcess.checked = false;
+    });
+    label.append(input, document.createTextNode(process.name));
+    viewerBatchProcesses.appendChild(label);
+  }
+}
+
+function getClassificationFilters() {
+  const selectedState = viewerClassificationState.value;
+  return {
+    classificationEligible: true,
+    pathStatus: selectedState === 'missing' ? 'missing' : 'available',
+    state: selectedState === 'missing' ? null : selectedState || null,
+    categoryId: viewerClassificationCategory.value || null,
+    processId: viewerClassificationProcess.value || null,
+    conversationId: viewerClassificationGroup.value || null,
+    senderQuery: viewerClassificationSender.value.trim() || null,
+    runId: viewerClassificationRun.value || null,
+  };
+}
+
+function populateClassificationFilters(result) {
+  replaceSelectOptions(
+    viewerClassificationGroup,
+    result.manifest?.conversations || [],
+    '全部群聊',
+    'conversationId',
+    'displayName'
+  );
+  replaceSelectOptions(viewerClassificationCategory, jewelryProductCategories, '全部品类');
+  replaceSelectOptions(viewerClassificationProcess, jewelryProcesses, '全部工艺');
+  replaceSelectOptions(
+    viewerClassificationRun,
+    (result.runs || []).map((run) => ({
+      id: run.runId,
+      name: `${new Date(run.createdAt).toLocaleString('zh-CN')} · ${run.status}`,
+    })),
+    '全部任务'
+  );
+}
+
+function classificationStateLabel(state) {
+  return {
+    pending: '等待识别',
+    classified: '已分类',
+    needs_review: '待人工复核',
+    failed: '识别失败',
+  }[state] || state;
+}
+
+function createClassificationChoices(items, type, name, selectedIds) {
+  const grid = document.createElement('div');
+  grid.className = 'classification-choice-grid';
+  for (const item of items) {
+    const label = document.createElement('label');
+    label.className = 'classification-option';
+    const input = document.createElement('input');
+    input.type = type;
+    input.name = name;
+    input.value = item.id;
+    input.checked = selectedIds.has(item.id);
+    label.append(input, document.createTextNode(item.name));
+    grid.appendChild(label);
+  }
+  return grid;
+}
+
+function renderClassificationCard(item) {
+  const annotation = item.annotation || {};
+  const card = document.createElement('article');
+  card.className = 'classification-card';
+  card.dataset.imageId = item.imageId;
+
+  const media = document.createElement('div');
+  media.className = 'classification-card-media';
+  const showImagePlaceholder = (text) => {
+    if (media.querySelector('.classification-image-placeholder')) return;
+    const placeholder = document.createElement('div');
+    placeholder.className = 'classification-image-placeholder';
+    placeholder.textContent = text;
+    media.appendChild(placeholder);
+  };
+  if (item.previewUrl) {
+    const image = document.createElement('img');
+    image.src = item.previewUrl;
+    image.alt = `${item.conversationName}中的珠宝图片`;
+    image.loading = 'lazy';
+    image.addEventListener('error', () => {
+      image.remove();
+      showImagePlaceholder('图片加载失败');
+    });
+    image.addEventListener('click', () => openViewerLightbox(item.previewUrl));
+    media.appendChild(image);
+  } else {
+    showImagePlaceholder(item.pathStatus === 'missing' ? '图片文件缺失' : '图片加载失败');
+  }
+  const selected = document.createElement('input');
+  selected.type = 'checkbox';
+  selected.className = 'classification-card-select';
+  selected.checked = viewerSelectedClassificationImages.has(item.imageId);
+  selected.disabled = !item.classificationEligible || item.pathStatus !== 'available';
+  selected.setAttribute('aria-label', '选择图片');
+  selected.addEventListener('change', () => {
+    if (selected.checked) viewerSelectedClassificationImages.add(item.imageId);
+    else viewerSelectedClassificationImages.delete(item.imageId);
+    updateClassificationSummary();
+  });
+  const state = document.createElement('span');
+  state.className = `classification-state ${annotation.state || 'pending'}`;
+  state.textContent = item.pathStatus === 'missing'
+    ? '图片缺失'
+    : classificationStateLabel(annotation.state || 'pending');
+  media.append(selected, state);
+
+  const form = document.createElement('div');
+  form.className = 'classification-card-form';
+  const meta = document.createElement('div');
+  meta.className = 'classification-card-meta';
+  const source = document.createElement('span');
+  source.textContent = `${item.conversationName} · ${item.senderName || '未知发送人'}`;
+  const time = document.createElement('span');
+  time.textContent = item.datetime || '';
+  meta.append(source, time);
+  form.appendChild(meta);
+
+  const textField = document.createElement('div');
+  textField.className = 'classification-field';
+  const textLabel = document.createElement('strong');
+  textLabel.textContent = '图片文字';
+  const recognizedText = document.createElement('textarea');
+  recognizedText.value = annotation.recognizedText?.value || '';
+  recognizedText.placeholder = '未识别到图片文字';
+  textField.append(textLabel, recognizedText);
+  form.appendChild(textField);
+
+  const categoryField = document.createElement('div');
+  categoryField.className = 'classification-field';
+  const categoryLabel = document.createElement('strong');
+  categoryLabel.textContent = '品类*';
+  const categoryChoices = createClassificationChoices(
+    jewelryProductCategories,
+    'radio',
+    `category-${item.imageId}`,
+    new Set(annotation.productCategory?.id ? [annotation.productCategory.id] : [])
+  );
+  categoryField.append(categoryLabel, categoryChoices);
+  form.appendChild(categoryField);
+
+  const processField = document.createElement('div');
+  processField.className = 'classification-field';
+  const processLabel = document.createElement('strong');
+  processLabel.textContent = '工艺';
+  const processChoices = createClassificationChoices(
+    jewelryProcesses,
+    'checkbox',
+    `process-${item.imageId}`,
+    new Set(annotation.processes?.ids || [])
+  );
+  const noProcess = document.createElement('label');
+  noProcess.className = 'classification-option';
+  const noProcessInput = document.createElement('input');
+  noProcessInput.type = 'checkbox';
+  noProcessInput.checked = annotation.processes?.decision === 'none';
+  noProcess.append(noProcessInput, document.createTextNode('确认无匹配工艺'));
+  processChoices.appendChild(noProcess);
+  for (const input of processChoices.querySelectorAll('input[type="checkbox"]')) {
+    if (input === noProcessInput) continue;
+    input.addEventListener('change', () => {
+      if (input.checked) noProcessInput.checked = false;
+    });
+  }
+  noProcessInput.addEventListener('change', () => {
+    if (noProcessInput.checked) {
+      for (const input of processChoices.querySelectorAll('input[type="checkbox"]')) {
+        if (input !== noProcessInput) input.checked = false;
+      }
+    }
+  });
+  processField.append(processLabel, processChoices);
+  form.appendChild(processField);
+
+  if (item.context?.length) {
+    const contextDetails = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = `分类上下文（${item.context.length} 条）`;
+    contextDetails.appendChild(summary);
+    for (const message of item.context) {
+      const line = document.createElement('p');
+      line.className = 'classification-reason';
+      line.textContent = `${message.senderName}：${message.text}`;
+      contextDetails.appendChild(line);
+    }
+    form.appendChild(contextDetails);
+  }
+  if (annotation.reason) {
+    const reason = document.createElement('p');
+    reason.className = 'classification-reason';
+    reason.textContent = annotation.reason;
+    form.appendChild(reason);
+  }
+
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'btn primary classification-card-save';
+  save.textContent = '确认分类';
+  save.addEventListener('click', async () => {
+    const categoryId = categoryChoices.querySelector('input:checked')?.value || null;
+    const processIds = [...processChoices.querySelectorAll('input[type="checkbox"]:checked')]
+      .filter((input) => input !== noProcessInput)
+      .map((input) => input.value);
+    save.disabled = true;
+    const result = await window.exporter.saveJewelryClassification({
+      datasetDir: viewerDatasetDir,
+      imageId: item.imageId,
+      categoryId,
+      processIds,
+      processDecision: noProcessInput.checked ? 'none' : 'selected',
+      recognizedText: recognizedText.value,
+    });
+    save.disabled = false;
+    if (!result.ok) {
+      await showFriendlyError('分类保存失败', result.error || '无法保存人工分类');
+      return;
+    }
+    viewerSelectedClassificationImages.delete(item.imageId);
+    await loadClassificationReview();
+  });
+  form.appendChild(save);
+  card.append(media, form);
+  return card;
+}
+
+function renderClassificationItems() {
+  viewerClassificationList.replaceChildren();
+  if (!viewerClassificationItems.length) {
+    const empty = document.createElement('div');
+    empty.className = 'viewer-empty';
+    empty.textContent = '当前筛选条件下没有图片';
+    viewerClassificationList.appendChild(empty);
+    return;
+  }
+  for (const item of viewerClassificationItems) viewerClassificationList.appendChild(renderClassificationCard(item));
+}
+
+function updateClassificationSummary() {
+  const first = viewerClassificationTotal ? viewerClassificationOffset + 1 : 0;
+  const last = Math.min(viewerClassificationOffset + viewerClassificationItems.length, viewerClassificationTotal);
+  viewerClassificationSummary.textContent = `${viewerClassificationTotal} 张图片 · 当前 ${first}-${last} · ${viewerSelectedClassificationImages.size} 张已选择`;
+}
+
+function updateClassificationPagination() {
+  const page = viewerClassificationTotal ? Math.floor(viewerClassificationOffset / viewerClassificationLimit) + 1 : 1;
+  const pageCount = Math.max(1, Math.ceil(viewerClassificationTotal / viewerClassificationLimit));
+  viewerClassificationPageInfo.textContent = `第 ${page} / ${pageCount} 页`;
+  viewerClassificationPrevBtn.disabled = viewerClassificationOffset <= 0;
+  viewerClassificationNextBtn.disabled = viewerClassificationOffset + viewerClassificationLimit >= viewerClassificationTotal;
+}
+
+async function loadClassificationReview({ resetPage = false } = {}) {
+  if (!viewerDatasetDir || !(await ensureJewelryTaxonomy())) return;
+  if (resetPage) viewerClassificationOffset = 0;
+  const requestToken = ++viewerClassificationRequestToken;
+  const result = await window.exporter.listJewelryImages({
+    datasetDir: viewerDatasetDir,
+    filters: getClassificationFilters(),
+    offset: viewerClassificationOffset,
+    limit: viewerClassificationLimit,
+  });
+  if (requestToken !== viewerClassificationRequestToken) return;
+  if (!result.ok) {
+    await showFriendlyError('数据集读取失败', result.error || '无法读取图片分类数据');
+    return;
+  }
+  viewerClassificationItems = result.result.items || [];
+  viewerClassificationRuns = result.result.runs || [];
+  viewerClassificationTotal = Number(result.result.total) || 0;
+  viewerClassificationOffset = Number(result.result.offset) || 0;
+  viewerClassificationLimit = Number(result.result.limit) || 50;
+  populateClassificationFilters(result.result);
+  updateClassificationSummary();
+  updateClassificationPagination();
+  renderClassificationItems();
+}
+
+async function openClassificationReview() {
+  if (!viewerDatasetDir) {
+    await showFriendlyError('尚未选择数据集', '请先选择目录并确认读取一个群聊。');
+    return;
+  }
+  if (!(await ensureJewelryTaxonomy())) return;
+  renderBatchProcessOptions();
+  viewerClassificationPanel.classList.remove('hidden');
+  await loadClassificationReview({ resetPage: true });
+}
+
+function closeClassificationReview() {
+  viewerClassificationPanel.classList.add('hidden');
+}
+
+function scheduleClassificationReload() {
+  clearTimeout(viewerClassificationFilterTimer);
+  viewerClassificationFilterTimer = setTimeout(() => void loadClassificationReview({ resetPage: true }), 180);
+}
+
+async function applyBatchProcesses() {
+  const imageIds = [...viewerSelectedClassificationImages];
+  if (!imageIds.length) {
+    await showFriendlyError('未选择图片', '请先勾选要批量设置工艺的图片。');
+    return;
+  }
+  const processIds = [...viewerBatchProcesses.querySelectorAll('input:checked')].map((input) => input.value);
+  const result = await window.exporter.batchSaveJewelryProcesses({
+    datasetDir: viewerDatasetDir,
+    imageIds,
+    processIds,
+    processDecision: viewerBatchNoProcess.checked ? 'none' : 'selected',
+  });
+  if (!result.ok) {
+    await showFriendlyError('批量保存失败', result.error || '无法批量保存工艺');
+    return;
+  }
+  viewerSelectedClassificationImages = new Set();
+  await loadClassificationReview();
+}
+
+async function retrySelectedClassifications() {
+  const imageIds = [...viewerSelectedClassificationImages];
+  if (!imageIds.length) {
+    await showFriendlyError('未选择图片', '请先勾选要识别的图片。');
+    return;
+  }
+  if (!(await ensureJewelryCodexConsent())) return;
+  const result = await window.exporter.retryJewelryClassification({ datasetDir: viewerDatasetDir, imageIds });
+  if (!result.ok) {
+    await showFriendlyError('提交失败', result.error || '无法创建 Codex 分类任务');
+    return;
+  }
+  setViewerSyncStatus(`已提交 ${imageIds.length} 张图片进行识别`, 'syncing');
 }
 
 document.getElementById('pickWxDir').addEventListener('click', () => {
@@ -3065,13 +4566,13 @@ autoDetectBtn.addEventListener('click', async () => {
   autoDetectBtn.textContent = '自动检测';
 
   if (!result.ok) {
-    await showFriendlyError('检测失败', result.error || '无法扫描常见微信目录');
+    await showFriendlyError('检测失败', result.error || '无法扫描常见不信目录');
     return;
   }
 
   const paths = result.paths || [];
   if (!paths.length) {
-    wxDirHint.textContent = '未在常见位置找到微信数据，请手动浏览选择';
+    wxDirHint.textContent = '未在常见位置找到不信数据，请手动浏览选择';
     wxDirHint.className = 'hint';
     return;
   }
@@ -3189,12 +4690,6 @@ openOutputBtn.addEventListener('click', () => {
   }
 });
 
-openIndexBtn.addEventListener('click', () => {
-  if (lastHtmlIndexPath) {
-    window.exporter.openPath(lastHtmlIndexPath);
-  }
-});
-
 restartBtn.addEventListener('click', () => {
   setStep(2);
   setProgress(0, '等待开始');
@@ -3214,10 +4709,135 @@ voiceTranscriptionInput?.addEventListener('change', () => {
   void refreshSelectionSummary({ highlight: true });
 });
 
+browseRecordsBtn?.addEventListener('click', () => void openRecordViewer());
+pickAccountDatasetBtn?.addEventListener('click', () => void pickAccountDatasetDirectory());
+closeViewerBtn?.addEventListener('click', closeRecordViewer);
+viewerRefreshBtn?.addEventListener('click', async () => {
+  if (!viewerGroupLoadConfirmed) {
+    await showFriendlyError('尚未确认群聊', '请先点进一个群聊并确认读取，再刷新本机数据。');
+    return;
+  }
+  await syncViewerLatest();
+});
+viewerGroupSearch?.addEventListener('input', renderViewerGroups);
+viewerMemberSearch?.addEventListener('input', renderViewerMembers);
+viewerLoadOlderBtn?.addEventListener('click', () => void loadViewerMessages({ older: true }));
+viewerPickDatasetBtn?.addEventListener('click', () => void pickViewerDatasetDirectory());
+viewerOpenReviewBtn?.addEventListener('click', () => void openClassificationReview());
+viewerCloseReviewBtn?.addEventListener('click', closeClassificationReview);
+viewerApplyBatchProcessesBtn?.addEventListener('click', () => void applyBatchProcesses());
+viewerRetryClassificationBtn?.addEventListener('click', () => void retrySelectedClassifications());
+viewerClassificationPrevBtn?.addEventListener('click', () => {
+  viewerClassificationOffset = Math.max(0, viewerClassificationOffset - viewerClassificationLimit);
+  void loadClassificationReview();
+});
+viewerClassificationNextBtn?.addEventListener('click', () => {
+  if (viewerClassificationOffset + viewerClassificationLimit >= viewerClassificationTotal) return;
+  viewerClassificationOffset += viewerClassificationLimit;
+  void loadClassificationReview();
+});
+viewerCancelClassificationBtn?.addEventListener('click', async () => {
+  await window.exporter.cancelJewelryClassification();
+  setViewerSyncStatus('已请求取消图片识别', 'idle');
+});
+viewerLightboxClose?.addEventListener('click', closeViewerLightbox);
+viewerLightbox?.addEventListener('click', (event) => {
+  if (event.target === viewerLightbox) closeViewerLightbox();
+});
+viewerAutoSync?.addEventListener('change', () => {
+  if (viewerAutoSync.checked && viewerGroupLoadConfirmed) void checkViewerDataStatus();
+  else if (viewerAutoSync.checked) setViewerSyncStatus('尚未读取群聊数据', 'idle');
+  else setViewerSyncStatus('自动检查已暂停', 'idle');
+});
+viewerSelectAllMembers?.addEventListener('change', () => {
+  viewerSelectedMembers = viewerSelectAllMembers.checked ? null : new Set();
+  saveCurrentViewerSyncOption();
+  renderViewerMembers();
+  scheduleViewerReload();
+});
+viewerSelectAllGroups?.addEventListener('change', () => {
+  viewerSelectedGroups = viewerSelectAllGroups.checked
+    ? new Set(getViewerGroups().map((group) => group.username))
+    : new Set();
+  renderViewerGroups();
+  updateViewerExportState();
+});
+for (const button of viewerTypeFilter?.querySelectorAll('[data-viewer-type]') || []) {
+  button.addEventListener('click', () => {
+    const nextImagesOnly = button.dataset.viewerType === 'images';
+    if (viewerImagesOnly === nextImagesOnly) return;
+    viewerImagesOnly = nextImagesOnly;
+    for (const item of viewerTypeFilter.querySelectorAll('[data-viewer-type]')) {
+      item.classList.toggle('active', item === button);
+    }
+    renderViewerMessages();
+  });
+}
+viewerStartDate?.addEventListener('change', () => {
+  saveCurrentViewerSyncOption();
+  scheduleViewerReload();
+});
+viewerEndDate?.addEventListener('change', () => {
+  saveCurrentViewerSyncOption();
+  scheduleViewerReload();
+});
+viewerSyncText?.addEventListener('change', () => {
+  saveCurrentViewerSyncOption();
+  scheduleViewerReload();
+});
+viewerSyncImages?.addEventListener('change', () => {
+  saveCurrentViewerSyncOption();
+  scheduleViewerReload();
+});
+viewerBatchNoProcess?.addEventListener('change', () => {
+  if (viewerBatchNoProcess.checked) {
+    for (const input of viewerBatchProcesses.querySelectorAll('input')) input.checked = false;
+  }
+});
+for (const filter of [
+  viewerClassificationState,
+  viewerClassificationGroup,
+  viewerClassificationCategory,
+  viewerClassificationProcess,
+  viewerClassificationRun,
+]) {
+  filter?.addEventListener('change', scheduleClassificationReload);
+}
+viewerClassificationSender?.addEventListener('input', scheduleClassificationReload);
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (!viewerLightbox.classList.contains('hidden')) closeViewerLightbox();
+  else if (!viewerClassificationPanel.classList.contains('hidden')) closeClassificationReview();
+  else if (viewerIsOpen) closeRecordViewer();
+});
+
+window.exporter.onJewelryProgress((event) => {
+  if (event.phase === 'dataset-sync' || event.phase === 'image-resolve') {
+    if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
+    if (event.scope === 'viewer' && event.username !== viewerSelectedGroup?.username) return;
+    const message = event.message || `保存群聊 ${event.current}/${event.total} · ${event.displayName || ''}`;
+    setViewerSyncStatus(message, 'syncing');
+    appendViewerProgressLog(message);
+  } else if (event.phase === 'classification-start') {
+    setViewerSyncStatus(`开始识别 ${event.total} 张图片`, 'syncing');
+  } else if (event.phase === 'classification-batch') {
+    setViewerSyncStatus(`图片识别 ${event.current}/${event.total}`, 'syncing');
+  } else if (event.phase === 'classification-done') {
+    setViewerSyncStatus(`图片识别完成 · ${event.completed} 成功，${event.failed} 失败`, event.failed ? 'warning' : 'ready');
+    if (!viewerClassificationPanel.classList.contains('hidden')) void loadClassificationReview();
+  } else if (event.phase === 'classification-failed') {
+    setViewerSyncStatus(event.error || '图片识别失败', 'warning');
+    if (!viewerClassificationPanel.classList.contains('hidden')) void loadClassificationReview();
+  }
+});
+
 window.exporter.onProgress((event) => {
   const phase = event.phase;
 
   if (phase === 'scan' || phase === 'init' || phase === 'decrypt' || phase === 'keys') {
+    if (viewerSyncing && event.message) {
+      setViewerSyncStatus(friendlyScanMessage(event), 'syncing');
+    }
     if (scanRunning) {
       showScanToast(
         friendlyScanTitle(event),
