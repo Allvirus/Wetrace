@@ -1178,6 +1178,95 @@ select:focus {
   flex: 1 1 180px;
 }
 
+.records-time-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.records-time-label {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.records-date-control {
+  width: 250px;
+  min-width: 0;
+  flex: 0 1 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.records-date-control:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(7, 193, 96, 0.12);
+}
+
+.records-date-control.invalid {
+  border-color: var(--danger);
+}
+
+.records-date-control input {
+  width: 40px;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.records-date-control input:first-child {
+  width: 58px;
+}
+
+.records-date-control > span {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.records-time-clear {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.records-time-clear:hover:not(:disabled) {
+  color: var(--text);
+  border-color: #94a3b8;
+}
+
+.records-time-clear:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .conv-type-filter {
   display: inline-flex;
   gap: 4px;
@@ -1669,6 +1758,24 @@ select:focus {
 
   .conv-toolbar input {
     width: 100%;
+  }
+
+  .records-time-filter,
+  .records-time-label {
+    align-items: stretch;
+  }
+
+  .records-time-label {
+    flex-direction: column;
+  }
+
+  .records-date-control {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .records-time-clear {
+    align-self: flex-end;
   }
 
   .steps {

@@ -86,6 +86,9 @@ $built = @(
 if ($built) {
   $outPath = Join-Path $OutDir 'wexin_hook.dll'
   Copy-Item $built.FullName $outPath -Force
+  $checksum = (Get-FileHash -Algorithm SHA256 -LiteralPath $outPath).Hash.ToLowerInvariant()
+  [IO.File]::WriteAllText(($outPath + '.sha256'), $checksum + [Environment]::NewLine, [Text.Encoding]::ASCII)
+  Write-Host "SHA-256: $checksum" -ForegroundColor DarkGray
   Write-Host "Output: $outPath" -ForegroundColor Green
 } else {
   Write-Host 'Build finished but wexin_hook.dll was not found.' -ForegroundColor Red

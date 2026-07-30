@@ -29,6 +29,11 @@ const { buildDatasetImageId } = require('../lib/imageMedia');
 const { getDecryptedStorageFingerprint } = require('../lib/decryptCore');
 const { openGroupRecordStore } = require('../lib/groupRecordStore');
 const { getAccountDataPaths } = require('../lib/accountDataPaths');
+const {
+  listLearningExamples,
+  openLearningDatabase,
+  saveLearningSample,
+} = require('../lib/jewelryLearningStore');
 
 function text(id, createTime, content, senderWxid = 'alice') {
   return { id, type: 1, createTime, content, senderWxid, senderName: senderWxid };
@@ -85,7 +90,7 @@ test('legacy dataset JSON documents migrate into SQLite without deleting source 
     const manifest = {
       schemaVersion: 1,
       datasetId: 'legacy-dataset',
-      account: { wxid: 'wxid_legacy', displayName: 'Legacy' },
+      account: { wxid: null, displayName: 'Legacy' },
       conversations: [{
         conversationId,
         username: 'legacy@chatroom',
@@ -114,6 +119,7 @@ test('legacy dataset JSON documents migrate into SQLite without deleting source 
 
     const opened = openOrCreateDataset({ rootDir: temp, accountWxid: 'wxid_legacy' });
     assert.equal(opened.manifest.datasetId, 'legacy-dataset');
+    assert.equal(opened.manifest.account.wxid, 'wxid_legacy');
     assert.equal(fs.existsSync(path.join(temp, 'dataset.db')), true);
     assert.equal(fs.existsSync(path.join(temp, 'conversations', `${conversationId}.db`)), true);
     assert.deepEqual(readJson(resolveInside(temp, messageFile)), conversation);
@@ -132,7 +138,7 @@ test('dataset sync filters stored members while retaining same-group image conte
   const decryptedDir = path.join(accountDir, 'db_storage_decrypted');
   const datasetDir = path.join(temp, 'dataset');
   const recordDbPath = getAccountDataPaths(datasetDir).groupRecordDbPath;
-  const username = 'sync@chatroom';
+  const username = '43697551884@chatroom';
   const conversationId = stableId('conv', username);
   const imageMessage = {
     id: 5,
@@ -227,7 +233,15 @@ test('dataset sync filters stored members while retaining same-group image conte
         includeImages: true,
       }],
     }, (event) => progressEvents.push(event));
-    assert.deepEqual(result.pendingImageIds, [imageId]);
+    const classificationItems = listDatasetImages({ datasetDir }).items;
+    const primaryItem = classificationItems.find((item) => item.sourceImageId === imageId);
+    const missingItem = classificationItems.find((item) => item.sourceImageId === missingImageId);
+    assert.match(primaryItem.imageId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    assert.deepEqual(result.pendingImageIds, [primaryItem.imageId]);
+    assert.equal(primaryItem.classificationRecord.source.message.senderWxid, 'alice');
+    assert.equal(primaryItem.classificationRecord.source.message.senderName, 'Alice');
+    assert.deepEqual(primaryItem.classificationRecord.context.before.map((item) => item.distance), [3, 2, 1]);
+    assert.deepEqual(primaryItem.classificationRecord.context.after.map((item) => item.distance), [1, 2, 3]);
     assert.equal(result.syncedSqliteMessages, 5);
     const conversationDbPath = path.join(datasetDir, 'conversations', `${conversationId}.db`);
     assert.equal(fs.existsSync(conversationDbPath), true);
@@ -299,8 +313,8 @@ test('dataset sync filters stored members while retaining same-group image conte
       fs.existsSync(path.join(datasetDir, 'annotations', `${conversationId}.json`)),
       false
     );
-    assert.equal(annotations.items[gifImageId].state, 'skipped');
-    assert.equal(annotations.items[missingImageId].state, 'failed');
+    assert.equal(annotations.items[gifImageId].current.state, 'skipped');
+    assert.equal(annotations.items[missingImageId].current.state, 'failed');
     assert.ok(progressEvents.some((event) => event.phase === 'image-resolve' && event.subphase === 'cache'));
     assert.ok(progressEvents.some((event) => event.phase === 'dataset-sync' && event.subphase === 'sqlite'));
     assert.ok(progressEvents.some((event) => event.phase === 'dataset-sync' && event.subphase === 'done'));
@@ -343,7 +357,7 @@ test('dataset sync filters stored members while retaining same-group image conte
     );
     assert.equal(repeatedConversation.messages.length, 5);
     assert.equal(repeatedConversation.messages[3].images[0].lastResolveSourceVersion, imageSourceVersion);
-    assert.deepEqual(repeated.pendingImageIds, [imageId]);
+    assert.deepEqual(repeated.pendingImageIds, [primaryItem.imageId]);
     assert.equal(repeated.syncedMessages, 0);
     assert.equal(repeated.syncedSqliteMessages, 0);
     assert.equal(repeatedImageReads, 0);
@@ -397,7 +411,7 @@ test('dataset sync filters stored members while retaining same-group image conte
     assert.equal(recoveredImage.absolutePath, recoveredPath);
     assert.notEqual(recoveredImage.lastResolveSourceVersion, imageSourceVersion);
     assert.deepEqual(fs.readFileSync(recoveredPath), lateImage);
-    assert.ok(recovered.pendingImageIds.includes(missingImageId));
+    assert.ok(recovered.pendingImageIds.includes(missingItem.imageId));
     assert.ok(
       recoveredProgress.some((event) => event.phase === 'image-resolve' && event.subphase === 'parsing')
     );
@@ -420,7 +434,7 @@ test('dataset sync filters stored members while retaining same-group image conte
   }
 });
 
-test('classification listing paginates filtered SQLite results', () => {
+test('classification listing supports incremental batches and filtered date facets', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-jewelry-pages-'));
   const conversationId = 'conv_pages';
   try {
@@ -460,7 +474,7 @@ test('classification listing paginates filtered SQLite results', () => {
     const annotationFile = `annotations/${conversationId}.json`;
     manifest.conversations.push({
       conversationId,
-      username: 'pages@chatroom',
+      username: '43697551884@chatroom',
       displayName: 'Pages',
       messageFile,
       annotationFile,
@@ -477,11 +491,51 @@ test('classification listing paginates filtered SQLite results', () => {
     assert.equal(middle.offset, 50);
     assert.equal(middle.items.length, 50);
     assert.equal(middle.hasMore, true);
+    assert.equal(middle.dayCounts['1970-01-01'], 119);
+    assert.equal(listDatasetImages({
+      datasetDir: temp,
+      filters: { day: '1970-01-01' },
+    }).total, 119);
+    assert.deepEqual(listDatasetImages({
+      datasetDir: temp,
+      filters: { day: '1970-01-01' },
+    }).stateCounts, { needs_review: 119 });
+    assert.equal(listDatasetImages({
+      datasetDir: temp,
+      filters: { day: '2026-01-01' },
+    }).total, 0);
+    assert.equal(listDatasetImages({
+      datasetDir: temp,
+      filters: { dateFrom: '1970-01-01', dateTo: '1970-01-01' },
+    }).total, 119);
+    assert.equal(listDatasetImages({
+      datasetDir: temp,
+      filters: {
+        dateFrom: '1970-01-01',
+        dateTo: '1970-01-01',
+        includeUnknownDate: true,
+      },
+    }).total, 120);
+    assert.equal(listDatasetImages({
+      datasetDir: temp,
+      filters: { states: ['needs_review', 'classified'] },
+    }).total, 120);
+    assert.equal(listDatasetImages({
+      datasetDir: temp,
+      filters: { states: ['classified'] },
+    }).total, 0);
     const last = listDatasetImages({ datasetDir: temp, offset: 100, limit: 50 });
     assert.equal(last.items.length, 20);
     assert.equal(last.hasMore, false);
-    assert.equal(listDatasetImages({ datasetDir: temp, filters: { pathStatus: 'available' } }).total, 1);
-    assert.equal(listDatasetImages({ datasetDir: temp, filters: { pathStatus: 'missing' } }).total, 119);
+    const available = listDatasetImages({ datasetDir: temp, filters: { pathStatus: 'available' } });
+    assert.equal(available.total, 1);
+    assert.deepEqual(available.dayCounts, { 'unknown-date': 1 });
+    const missing = listDatasetImages({ datasetDir: temp, filters: { pathStatus: 'missing' } });
+    assert.equal(missing.total, 119);
+    assert.deepEqual(missing.dayCounts, { '1970-01-01': 119 });
+    const idsOnly = listDatasetImages({ datasetDir: temp, limit: 5000, idsOnly: true });
+    assert.equal(idsOnly.items.length, 120);
+    assert.deepEqual(Object.keys(idsOnly.items[0]), ['imageId']);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
@@ -546,7 +600,7 @@ test('non-classifiable media is marked and excluded from image review queues', (
     ];
     manifest.conversations.push({
       conversationId,
-      username: 'media@chatroom',
+      username: '43697551884@chatroom',
       displayName: 'Media group',
       messageFile,
       annotationFile,
@@ -567,11 +621,11 @@ test('non-classifiable media is marked and excluded from image review queues', (
     const eligible = listDatasetImages({ datasetDir: temp });
     assert.equal(eligible.total, 2);
     assert.deepEqual(
-      new Set(eligible.items.map((item) => item.imageId)),
+      new Set(eligible.items.map((item) => item.sourceImageId)),
       new Set(['img_normal', 'img_missing'])
     );
     const missing = listDatasetImages({ datasetDir: temp, filters: { pathStatus: 'missing' } });
-    assert.deepEqual(missing.items.map((item) => item.imageId), ['img_missing']);
+    assert.deepEqual(missing.items.map((item) => item.sourceImageId), ['img_missing']);
 
     const skipped = listDatasetImages({
       datasetDir: temp,
@@ -579,7 +633,7 @@ test('non-classifiable media is marked and excluded from image review queues', (
     });
     assert.equal(skipped.total, 2);
     assert.deepEqual(
-      Object.fromEntries(skipped.items.map((item) => [item.imageId, item.mediaKind])),
+      Object.fromEntries(skipped.items.map((item) => [item.sourceImageId, item.mediaKind])),
       { img_emoji: 'emoji', img_gif: 'gif' }
     );
     assert.ok(skipped.items.every((item) =>
@@ -587,9 +641,10 @@ test('non-classifiable media is marked and excluded from image review queues', (
       item.classificationEligible === false &&
       item.annotation.state === 'skipped'
     ));
+    const gifClassificationId = skipped.items.find((item) => item.sourceImageId === 'img_gif').imageId;
     assert.throws(() => saveManualClassification({
       datasetDir: temp,
-      imageId: 'img_gif',
+      imageId: gifClassificationId,
       categoryId: 'pendant',
       processIds: [],
       processDecision: 'none',
@@ -612,6 +667,7 @@ test('dataset paths are rebound after a move and manual locks survive Codex resu
   const secondRoot = path.join(temp, 'moved');
   const conversationId = 'conv_test';
   const imageId = 'img_test';
+  const learningDbPath = path.join(temp, 'learning.db');
 
   try {
     const { paths, manifest } = openOrCreateDataset({ rootDir: firstRoot, accountWxid: 'wxid_self' });
@@ -621,7 +677,7 @@ test('dataset paths are rebound after a move and manual locks survive Codex resu
     fs.writeFileSync(absolutePath, Buffer.from('image'));
     manifest.conversations.push({
       conversationId,
-      username: 'group@chatroom',
+      username: '43697551884@chatroom',
       displayName: 'Group',
       messageFile: `conversations/${conversationId}.json`,
       annotationFile: `annotations/${conversationId}.json`,
@@ -630,7 +686,7 @@ test('dataset paths are rebound after a move and manual locks survive Codex resu
     atomicWriteJson(path.join(paths.conversations, `${conversationId}.json`), {
       schemaVersion: 1,
       conversationId,
-      username: 'group@chatroom',
+      username: '43697551884@chatroom',
       displayName: 'Group',
       messages: [{
         messageId: 'msg_test',
@@ -676,29 +732,33 @@ test('dataset paths are rebound after a move and manual locks survive Codex resu
 
     fs.renameSync(firstRoot, secondRoot);
     let listed = listDatasetImages({ datasetDir: secondRoot });
+    const classificationImageId = listed.items[0].imageId;
+    assert.equal(listed.items[0].sourceImageId, imageId);
     assert.equal(listed.items[0].absolutePath, path.join(secondRoot, ...relativePath.split('/')));
     assert.equal(listed.items[0].pathStatus, 'available');
 
     assert.throws(() => saveManualClassification({
       datasetDir: secondRoot,
-      imageId,
+      imageId: classificationImageId,
       categoryId: null,
       processIds: [],
       processDecision: 'none',
     }), /未知品类/);
     saveManualClassification({
       datasetDir: secondRoot,
-      imageId,
+      imageId: classificationImageId,
       categoryId: 'pendant',
       processIds: ['x5g', 'x5g'],
       processDecision: 'selected',
       recognizedText: '5G',
+      learningDbPath,
     });
     applyCodexResults({
       datasetDir: secondRoot,
       runId: 'run_later',
       results: [{
-        imageId,
+        imageId: classificationImageId,
+        jewelryDecision: 'jewelry',
         categoryId: 'ring',
         categoryDecision: 'selected',
         processIds: [],
@@ -713,8 +773,96 @@ test('dataset paths are rebound after a move and manual locks survive Codex resu
     assert.deepEqual(listed.items[0].annotation.processes.ids, ['x5g']);
     assert.equal(listed.items[0].annotation.recognizedText.value, '5G');
     assert.equal(listed.items[0].annotation.manualLocked, true);
+    const classifiedRecord = listed.items[0].classificationRecord;
+    const archivedPath = classifiedRecord.archive.classifiedRelativePath;
+    assert.equal(classifiedRecord.archive.projectionStatus, 'ready');
+    assert.equal(path.parse(archivedPath).name, classificationImageId);
+    assert.equal(fs.existsSync(resolveInside(secondRoot, archivedPath)), true);
+    assert.equal(listLearningExamples(learningDbPath).length, 1);
+    assert.equal(listLearningExamples(learningDbPath)[0].jewelryDecision, 'jewelry');
+    const revisionCount = classifiedRecord.revisions.length;
+
+    saveManualClassification({
+      datasetDir: secondRoot,
+      imageId: classificationImageId,
+      jewelryDecision: 'not_jewelry',
+      categoryId: null,
+      processIds: [],
+      processDecision: 'not_applicable',
+      recognizedText: '5G',
+      learningDbPath,
+    });
+    listed = listDatasetImages({ datasetDir: secondRoot });
+    const nonJewelryRecord = listed.items[0].classificationRecord;
+    assert.equal(nonJewelryRecord.current.state, 'not_jewelry');
+    assert.equal(nonJewelryRecord.current.category, null);
+    assert.deepEqual(nonJewelryRecord.current.processes, []);
+    assert.equal(nonJewelryRecord.archive.classifiedRelativePath, null);
+    assert.equal(fs.existsSync(resolveInside(secondRoot, archivedPath)), false);
+    assert.equal(nonJewelryRecord.revisions.length, revisionCount + 1);
+    assert.equal(nonJewelryRecord.revisions.at(-2).result.category.id, 'pendant');
+    assert.equal(nonJewelryRecord.revisions.at(-1).inputSnapshot.imageSha256, 'hash');
+    assert.equal(listLearningExamples(learningDbPath).length, 1);
+    assert.equal(listLearningExamples(learningDbPath)[0].jewelryDecision, 'not_jewelry');
 
     assert.throws(() => resolveInside(secondRoot, '../outside.png'), /超出数据集目录/);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('learning store accepts only target-group manual samples and retains GUID references', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-learning-scope-'));
+  const learningDbPath = path.join(temp, 'learning.db');
+  const imagePath = path.join(temp, 'sample.png');
+  fs.writeFileSync(imagePath, Buffer.from('sample'));
+
+  const makeRecord = (imageId, username) => ({
+    imageId,
+    sourceImageId: 'source_' + imageId,
+    source: {
+      conversation: { username },
+      image: { sha256: 'same-hash' },
+    },
+    current: {
+      source: 'manual',
+      jewelryDecision: 'jewelry',
+      category: { id: 'ring' },
+      processes: [],
+      updatedAt: new Date(0).toISOString(),
+    },
+  });
+
+  try {
+    assert.equal(saveLearningSample(
+      learningDbPath,
+      { absolutePath: imagePath },
+      makeRecord('outside-guid', 'other@chatroom')
+    ), false);
+    assert.equal(fs.existsSync(learningDbPath), false);
+
+    assert.equal(saveLearningSample(
+      learningDbPath,
+      { absolutePath: imagePath },
+      makeRecord('target-guid-1', '43697551884@chatroom')
+    ), true);
+    assert.equal(saveLearningSample(
+      learningDbPath,
+      { absolutePath: imagePath },
+      makeRecord('target-guid-2', '43697551884@chatroom')
+    ), true);
+
+    const db = openLearningDatabase(learningDbPath);
+    try {
+      const rows = db.prepare('SELECT source_refs_json FROM jewelry_learning_samples').all();
+      assert.equal(rows.length, 1);
+      assert.deepEqual(
+        JSON.parse(rows[0].source_refs_json).map((ref) => ref.imageId).sort(),
+        ['target-guid-1', 'target-guid-2']
+      );
+    } finally {
+      db.close();
+    }
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

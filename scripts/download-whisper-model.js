@@ -1,48 +1,26 @@
 #!/usr/bin/env node
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const { Transform } = require('stream');
+const { pipeline } = require('stream/promises');
+const { FILE_MANIFEST, MODEL_ID, MODEL_REVISION } = require('../lib/whisperModelManifest');
 
-const MODEL_ID = 'Xenova/whisper-small';
 const HF_ENDPOINT = (process.env.WETRACE_HF_ENDPOINT || 'https://huggingface.co').replace(/\/$/, '');
-const INSECURE_TLS =
-  process.argv.includes('--insecure') || process.env.WETRACE_HF_INSECURE === '1';
-
-if (INSECURE_TLS) {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  console.warn('警告: 已关闭 TLS 证书校验（仅用于下载模型）');
+const endpointUrl = new URL(HF_ENDPOINT);
+if (endpointUrl.protocol !== 'https:') {
+  throw new Error('WETRACE_HF_ENDPOINT must use HTTPS');
 }
 
-const HF_HOST = new URL(HF_ENDPOINT).host;
 const OUT_ROOT = path.join(__dirname, '..', 'assets', 'models');
 const OUT_DIR = path.join(OUT_ROOT, 'Xenova', 'whisper-small');
-const MARKER = path.join(OUT_DIR, 'config.json');
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_REDIRECTS = 8;
+const USER_AGENT = 'wetrace-model-downloader/2.0';
 
-const REQUIRED_ONNX = new Set([
-  'onnx/encoder_model_quantized.onnx',
-  'onnx/decoder_model_merged_quantized.onnx',
-]);
-
-const FALLBACK_FILES = [
-  'config.json',
-  'generation_config.json',
-  'preprocessor_config.json',
-  'tokenizer.json',
-  'tokenizer_config.json',
-  'merges.txt',
-  'normalizer.json',
-  'added_tokens.json',
-  'onnx/encoder_model_quantized.onnx',
-  'onnx/decoder_model_merged_quantized.onnx',
-];
-
-function filterModelFiles(files) {
-  return files.filter((filePath) => {
-    if (!filePath.endsWith('.onnx')) return true;
-    return REQUIRED_ONNX.has(filePath);
-  });
-}
+const REQUIRED_FILES = Object.keys(FILE_MANIFEST);
 
 function getDirSize(dir) {
   let total = 0;
@@ -57,105 +35,168 @@ function getDirSize(dir) {
   return total;
 }
 
-function httpsGet(url, redirects = 0) {
+function resolveOutputPath(relPath) {
+  if (!Object.hasOwn(FILE_MANIFEST, relPath)) {
+    throw new Error('Model file is not in the pinned manifest: ' + relPath);
+  }
+  const root = path.resolve(OUT_DIR);
+  const resolved = path.resolve(root, ...relPath.split('/'));
+  if (!resolved.startsWith(root + path.sep)) {
+    throw new Error('Model file escapes the output directory: ' + relPath);
+  }
+  return resolved;
+}
+
+function openHttpsStream(url, redirects = 0) {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:') {
+    return Promise.reject(new Error('Refusing non-HTTPS model URL: ' + parsed.href));
+  }
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'wetrace-model-downloader/1.0' } }, (res) => {
+    const req = https.get(parsed, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
-        if (redirects >= 8) {
-          reject(new Error(`重定向过多: ${url}`));
+        if (redirects >= MAX_REDIRECTS) {
+          res.resume();
+          reject(new Error('Too many redirects: ' + parsed.href));
           return;
         }
-        const next = new URL(res.headers.location, url).href;
+        const nextUrl = new URL(res.headers.location, parsed);
         res.resume();
-        resolve(httpsGet(next, redirects + 1));
+        resolve(openHttpsStream(nextUrl, redirects + 1));
         return;
       }
-
       if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}: ${url}`));
         res.resume();
+        reject(new Error('HTTP ' + res.statusCode + ': ' + parsed.href));
         return;
       }
-
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
+      resolve(res);
     });
-    req.on('error', reject);
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => req.destroy(new Error('Model download timed out')));
+    req.once('error', reject);
   });
 }
 
-function httpsGetJson(url) {
-  return httpsGet(url).then((buf) => JSON.parse(buf.toString('utf8')));
+async function hashFile(filePath) {
+  const hash = crypto.createHash('sha256');
+  const input = fs.createReadStream(filePath);
+  input.on('data', (chunk) => hash.update(chunk));
+  await new Promise((resolve, reject) => {
+    input.once('end', resolve);
+    input.once('error', reject);
+  });
+  return hash.digest('hex');
 }
 
-async function listModelFiles() {
+async function inspectModelFile(relPath) {
+  const expected = FILE_MANIFEST[relPath];
+  const filePath = resolveOutputPath(relPath);
   try {
-    const tree = await httpsGetJson(`${HF_ENDPOINT}/api/models/${MODEL_ID}/tree/main?recursive=true`);
-    const files = tree
-      .filter((item) => item.type === 'file')
-      .map((item) => item.path)
-      .filter((filePath) => !filePath.startsWith('.') && !filePath.endsWith('.md'));
-    if (files.length > 0) {
-      return filterModelFiles(files);
-    }
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return { ok: false, reason: 'not-file' };
+    if (stat.size !== expected.size) return { ok: false, reason: 'size-mismatch' };
+    const sha256 = await hashFile(filePath);
+    if (sha256 !== expected.sha256) return { ok: false, reason: 'sha256-mismatch' };
+    return { ok: true, size: stat.size, sha256 };
   } catch (err) {
-    console.warn(`无法读取 HuggingFace 文件列表，将使用内置清单: ${err.message}`);
+    if (err.code === 'ENOENT') return { ok: false, reason: 'missing' };
+    throw err;
   }
-  return FALLBACK_FILES;
 }
 
 async function downloadFile(relPath) {
-  const url = `${HF_ENDPOINT}/${MODEL_ID}/resolve/main/${relPath}`;
-  const outFile = path.join(OUT_DIR, relPath);
+  const expected = FILE_MANIFEST[relPath];
+  const outFile = resolveOutputPath(relPath);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
-  const data = await httpsGet(url);
-  fs.writeFileSync(outFile, data);
-  return data.length;
+  const encodedPath = relPath.split('/').map(encodeURIComponent).join('/');
+  const url = new URL(
+    MODEL_ID + '/resolve/' + MODEL_REVISION + '/' + encodedPath,
+    HF_ENDPOINT + '/'
+  );
+  const tempPath = outFile + '.download-' + process.pid + '-' + Date.now();
+  let response;
+  try {
+    response = await openHttpsStream(url);
+    const declaredLength = Number(response.headers['content-length']);
+    if (Number.isFinite(declaredLength) && declaredLength !== expected.size) {
+      throw new Error('Unexpected content length for ' + relPath);
+    }
+    let received = 0;
+    const hash = crypto.createHash('sha256');
+    const verifier = new Transform({
+      transform(chunk, _encoding, callback) {
+        received += chunk.length;
+        if (received > expected.size) {
+          callback(new Error('Model file exceeds pinned size: ' + relPath));
+          return;
+        }
+        hash.update(chunk);
+        callback(null, chunk);
+      },
+    });
+    await pipeline(response, verifier, fs.createWriteStream(tempPath, { flags: 'wx' }));
+    const sha256 = hash.digest('hex');
+    if (received !== expected.size || sha256 !== expected.sha256) {
+      throw new Error('Integrity check failed for ' + relPath);
+    }
+    if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
+    fs.renameSync(tempPath, outFile);
+    return received;
+  } catch (err) {
+    response?.destroy();
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    throw err;
+  }
 }
 
 async function main() {
   const force = process.argv.includes('--force');
+  fs.mkdirSync(OUT_DIR, { recursive: true });
 
-  if (!force && fs.existsSync(MARKER)) {
+  const invalidFiles = [];
+  for (const relPath of REQUIRED_FILES) {
+    const inspected = await inspectModelFile(relPath);
+    if (!inspected.ok) invalidFiles.push(relPath);
+  }
+  if (!force && invalidFiles.length === 0) {
     const sizeMb = Math.round(getDirSize(OUT_DIR) / (1024 * 1024));
-    console.log(`语音识别模型已就绪 (${sizeMb} MB): ${OUT_DIR}`);
+    console.log('Pinned speech model is ready (' + sizeMb + ' MB): ' + OUT_DIR);
     return;
   }
 
-  console.log(`正在下载 ${MODEL_ID} …`);
-  console.log('（约 250MB，打包发布时需要，不会提交到 Git）');
-
-  const files = await listModelFiles();
-  console.log(`共 ${files.length} 个文件待下载`);
-
-  if (fs.existsSync(OUT_DIR)) {
-    fs.rmSync(OUT_DIR, { recursive: true, force: true });
-  }
-  fs.mkdirSync(OUT_DIR, { recursive: true });
-
+  const files = force ? REQUIRED_FILES : invalidFiles;
+  console.log('Downloading pinned ' + MODEL_ID + '@' + MODEL_REVISION + ' ...');
+  console.log(files.length + ' file(s) require download or repair');
   let downloaded = 0;
   for (let i = 0; i < files.length; i += 1) {
     const relPath = files[i];
-    process.stdout.write(`[${i + 1}/${files.length}] ${relPath} … `);
-    try {
-      const bytes = await downloadFile(relPath);
-      downloaded += bytes;
-      console.log(`${Math.round(bytes / 1024)} KB`);
-    } catch (err) {
-      console.log('失败');
-      throw new Error(`下载失败 ${relPath}: ${err.message}`);
-    }
+    process.stdout.write('[' + (i + 1) + '/' + files.length + '] ' + relPath + ' ... ');
+    const bytes = await downloadFile(relPath);
+    downloaded += bytes;
+    console.log(Math.round(bytes / 1024) + ' KB');
   }
 
+  for (const relPath of REQUIRED_FILES) {
+    const inspected = await inspectModelFile(relPath);
+    if (!inspected.ok) throw new Error('Installed model verification failed: ' + relPath);
+  }
   const sizeMb = Math.round(getDirSize(OUT_DIR) / (1024 * 1024));
-  console.log(`模型已保存 (${sizeMb} MB, 下载 ${Math.round(downloaded / (1024 * 1024))} MB): ${OUT_DIR}`);
+  console.log('Pinned model verified (' + sizeMb + ' MB, downloaded ' +
+    Math.round(downloaded / (1024 * 1024)) + ' MB): ' + OUT_DIR);
 }
 
-main().catch((err) => {
-  console.error('下载语音识别模型失败:', err.message);
-  console.error('请确认网络可访问 HuggingFace，必要时尝试：');
-  console.error('  set WETRACE_HF_ENDPOINT=https://hf-mirror.com');
-  console.error('  npm run download-whisper-model -- --insecure');
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('Speech model download failed:', err.message);
+    console.error('Use an HTTPS HuggingFace endpoint and retry. TLS verification cannot be disabled.');
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  FILE_MANIFEST,
+  MODEL_REVISION,
+  downloadFile,
+  inspectModelFile,
+  resolveOutputPath,
+};

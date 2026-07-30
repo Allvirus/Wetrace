@@ -2,10 +2,14 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>微迹 Wetrace</title>
     <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="viewer.css" />
+    <link rel="stylesheet" href="viewer.css?v=20260728-6" />
   </head>
   <body>
     <div class="app">
@@ -98,7 +102,7 @@
             <span>我已阅读并理解上述说明，同意在本地使用本工具</span>
           </label>
 
-          <p class="hint welcome-footnote">遇到扫描失败？程序会自动保存诊断日志，可在失败提示中打开日志文件夹查看（不含聊天记录与密钥）。</p>
+          <p class="hint welcome-footnote">遇到扫描失败？程序会自动保存经过脱敏的诊断日志；分享前仍应检查其中是否包含敏感信息。</p>
 
           <div class="actions">
             <button id="welcomeNextBtn" class="btn primary" type="button" disabled>开始使用</button>
@@ -238,6 +242,21 @@
               <button type="button" class="conv-type-btn" data-type="private">私聊</button>
               <button type="button" class="conv-type-btn" data-type="group">群聊</button>
             </div>
+          </div>
+
+          <div class="records-time-filter">
+            <div class="records-time-label">
+              <span id="recordsStartDateLabel">消息与图片起始日期</span>
+              <span id="recordsStartDateControl" class="records-date-control" role="group" aria-labelledby="recordsStartDateLabel">
+                <input id="recordsStartYear" type="text" inputmode="numeric" maxlength="4" placeholder="YYYY" aria-label="起始年份" autocomplete="off" />
+                <span>年</span>
+                <input id="recordsStartMonth" type="text" inputmode="numeric" maxlength="2" placeholder="MM" aria-label="起始月份" autocomplete="off" />
+                <span>月</span>
+                <input id="recordsStartDay" type="text" inputmode="numeric" maxlength="2" placeholder="DD" aria-label="起始日期" autocomplete="off" />
+                <span>日</span>
+              </span>
+            </div>
+            <button id="clearRecordsStartTimeBtn" class="records-time-clear" type="button" title="清除起始日期" disabled aria-label="清除起始日期">×</button>
           </div>
 
           <div class="conv-bulk-actions legacy-export-flow" aria-hidden="true">
@@ -558,6 +577,22 @@
             <label><input id="viewerSyncText" type="checkbox" checked />文本消息</label>
             <label><input id="viewerSyncImages" type="checkbox" checked />图片内容</label>
           </div>
+          <section id="viewerNoteHydration" class="viewer-note-hydration" aria-label="笔记图片补齐">
+            <div class="viewer-note-head">
+              <strong>笔记图片</strong>
+              <span id="viewerNoteHydrationSummary">选择群聊后扫描</span>
+            </div>
+            <div id="viewerNoteHydrationStages" class="viewer-note-stages" aria-label="补齐进度">
+              <span data-note-stage="local">本地匹配</span>
+              <span data-note-stage="resource">缓存校验</span>
+            </div>
+            <div id="viewerNoteHydrationList" class="viewer-note-list">
+              <p>尚未读取任务</p>
+            </div>
+            <div class="viewer-note-actions">
+              <button id="viewerNoteUpdateBtn" class="btn secondary" type="button" disabled>更新笔记图片</button>
+            </div>
+          </section>
           <div class="viewer-dataset-target">
             <button id="viewerPickDatasetBtn" class="btn secondary" type="button">更改此账号的数据目录</button>
             <p id="viewerDatasetPath">此账号尚未选择目录</p>
@@ -577,20 +612,40 @@
             </div>
           </div>
           <div class="classification-actions">
-            <button id="viewerRetryClassificationBtn" class="btn secondary" type="button">识别所选</button>
+            <button id="viewerSelectCurrentClassificationBtn" class="btn secondary" type="button">全选当前内容</button>
+            <button id="viewerClearClassificationSelectionBtn" class="viewer-icon-btn" type="button" title="清空选择" aria-label="清空选择">×</button>
+            <button id="viewerRetryClassificationBtn" class="btn primary" type="button">识别当前日期范围</button>
+            <button id="viewerRetrySelectedClassificationBtn" class="btn secondary" type="button">识别所选</button>
+            <button id="viewerUploadSimilarityBtn" class="btn secondary" type="button">上传查询图</button>
             <button id="viewerCancelClassificationBtn" class="btn secondary" type="button">取消识别</button>
           </div>
         </header>
+        <div class="classification-date-bar" aria-label="识别日期范围">
+          <div class="classification-date-presets" role="group" aria-label="日期预设">
+            <button type="button" data-classification-range="latest">最近一天</button>
+            <button type="button" data-classification-range="today">今天</button>
+            <button type="button" data-classification-range="last7">最近 7 天</button>
+            <button type="button" data-classification-range="all">所有日期</button>
+          </div>
+          <label>开始<input id="viewerClassificationDateFrom" type="date" /></label>
+          <label>结束<input id="viewerClassificationDateTo" type="date" /></label>
+          <button id="viewerClassificationApplyDatesBtn" class="btn secondary" type="button">应用日期</button>
+          <select id="viewerClassificationDay" aria-label="单日"><option value="">按日期范围</option></select>
+        </div>
         <div class="classification-filters">
+          <select id="viewerClassificationGroup" aria-label="群聊"><option value="">全部授权群聊</option></select>
           <select id="viewerClassificationState" aria-label="分类状态">
             <option value="" selected>全部状态（待复核优先）</option>
+            <option value="codex_results">识别结果（含待复核）</option>
+            <option value="unrecognized">未识别</option>
             <option value="needs_review">待人工复核</option>
             <option value="failed">识别失败</option>
             <option value="pending">等待识别</option>
             <option value="classified">已分类</option>
+            <option value="not_jewelry">非珠宝</option>
             <option value="missing">图片缺失</option>
           </select>
-          <select id="viewerClassificationGroup" aria-label="群聊"><option value="">全部群聊</option></select>
+
           <select id="viewerClassificationCategory" aria-label="品类"><option value="">全部品类</option></select>
           <select id="viewerClassificationProcess" aria-label="工艺"><option value="">全部工艺</option></select>
           <select id="viewerClassificationRun" aria-label="分类任务"><option value="">全部任务</option></select>
@@ -605,11 +660,25 @@
         <div id="viewerClassificationList" class="classification-grid">
           <div class="viewer-empty">保存图片后可在这里复核分类</div>
         </div>
-        <nav class="classification-pagination" aria-label="图片分页">
-          <button id="viewerClassificationPrevBtn" class="viewer-icon-btn" type="button" title="上一页" aria-label="上一页">←</button>
-          <span id="viewerClassificationPageInfo">第 1 页</span>
-          <button id="viewerClassificationNextBtn" class="viewer-icon-btn" type="button" title="下一页" aria-label="下一页">→</button>
-        </nav>
+      </section>
+
+      <section id="viewerSimilarityPanel" class="viewer-similarity-panel hidden" aria-label="相似图片">
+        <header class="classification-head">
+          <div>
+            <button id="viewerCloseSimilarityBtn" class="viewer-icon-btn" type="button" aria-label="返回图片分类">←</button>
+            <div>
+              <h2>相似图片</h2>
+              <p id="viewerSimilaritySummary">选择图片开始检索</p>
+            </div>
+          </div>
+          <div class="classification-actions">
+            <label class="similarity-history-option"><input id="viewerSimilarityAllHistory" type="checkbox" />全部授权历史</label>
+            <button id="viewerRefreshSimilarityBtn" class="btn secondary" type="button">重新检索</button>
+          </div>
+        </header>
+        <div id="viewerSimilarityList" class="similarity-grid">
+          <div class="viewer-empty">尚未选择查询图片</div>
+        </div>
       </section>
     </section>
 
@@ -618,6 +687,6 @@
       <img id="viewerLightboxImage" alt="聊天图片预览" />
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=20260728-6"></script>
   </body>
 </html>

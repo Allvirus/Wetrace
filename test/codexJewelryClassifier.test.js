@@ -10,15 +10,18 @@ const {
   cancelJewelryClassification,
   createOutputSchema,
   listClassificationRuns,
+  prepareJewelryClassification,
   runJewelryClassification,
   validateBatchResults,
 } = require('../lib/codexJewelryClassifier');
 const {
   atomicWriteJson,
   openOrCreateDataset,
+  readDatasetItems,
   readJson,
   resolveInside,
 } = require('../lib/jewelryDataset');
+const { saveLearningSample } = require('../lib/jewelryLearningStore');
 
 const items = [{
   imageId: 'img_one',
@@ -32,6 +35,7 @@ const items = [{
 function validResult(overrides = {}) {
   return {
     imageId: 'img_one',
+    jewelryDecision: 'jewelry',
     categoryId: 'pendant',
     categoryDecision: 'selected',
     processIds: ['x5g'],
@@ -43,11 +47,12 @@ function validResult(overrides = {}) {
   };
 }
 
-test('Codex classification schema uses fixed labels and batches eight images', () => {
-  assert.equal(CLASSIFICATION_BATCH_SIZE, 8);
+test('Codex classification schema uses fixed labels and ten total attachments', () => {
+  assert.equal(CLASSIFICATION_BATCH_SIZE, 10);
   const schema = createOutputSchema(['img_one']);
   const resultSchema = schema.properties.results.items.properties;
-  assert.deepEqual(resultSchema.categoryDecision.enum, ['selected', 'uncertain']);
+  assert.deepEqual(resultSchema.jewelryDecision.enum, ['jewelry', 'not_jewelry', 'uncertain']);
+  assert.deepEqual(resultSchema.categoryDecision.enum, ['selected', 'uncertain', 'not_applicable']);
   assert.equal(resultSchema.categoryId.anyOf[0].enum.length, 10);
   assert.equal(resultSchema.processIds.items.enum.length, 8);
   assert.equal(resultSchema.processIds.uniqueItems, true);
@@ -66,21 +71,45 @@ test('Codex results reject unknown labels, inconsistent states, and missing deci
     validateBatchResults({ results: [validResult({ processIds: ['x5g', 'x5g'] })] }, items)[0].processIds,
     ['x5g']
   );
+  assert.equal(validateBatchResults({ results: [validResult({
+    jewelryDecision: 'not_jewelry',
+    categoryId: null,
+    categoryDecision: 'not_applicable',
+    processIds: [],
+    processDecision: 'not_applicable',
+  })] }, items)[0].jewelryDecision, 'not_jewelry');
+  assert.equal(validateBatchResults({ results: [validResult({
+    jewelryDecision: 'uncertain',
+    categoryId: null,
+    categoryDecision: 'uncertain',
+    processIds: [],
+    processDecision: 'uncertain',
+  })] }, items)[0].jewelryDecision, 'uncertain');
   assert.throws(
     () => validateBatchResults({ results: [validResult({ categoryId: 'watch' })] }, items),
-    /无效品类/
+    /invalid category label/
   );
   assert.throws(
     () => validateBatchResults({ results: [validResult({ processIds: ['laser'] })] }, items),
-    /无效工艺/
+    /invalid process label/
   );
   assert.throws(
     () => validateBatchResults({ results: [validResult({ categoryDecision: undefined })] }, items),
-    /品类判断状态/
+    /invalid category decision/
+  );
+  assert.throws(
+    () => validateBatchResults({ results: [validResult({
+      jewelryDecision: 'not_jewelry',
+      categoryId: 'pendant',
+      categoryDecision: 'selected',
+      processIds: [],
+      processDecision: 'not_applicable',
+    })] }, items),
+    /non-jewelry/
   );
   assert.throws(
     () => validateBatchResults({ results: [validResult({ processDecision: 'none', processIds: ['x5g'] })] }, items),
-    /工艺与判断状态不一致/
+    /process labels and decision/
   );
 });
 
@@ -94,7 +123,7 @@ function createFakeDataset(rootDir, { extension = 'png' } = {}) {
   fs.writeFileSync(absolutePath, Buffer.from('fake image'));
   manifest.conversations.push({
     conversationId,
-    username: 'fake@chatroom',
+    username: '43697551884@chatroom',
     displayName: 'Fake group',
     messageFile: `conversations/${conversationId}.json`,
     annotationFile: `annotations/${conversationId}.json`,
@@ -103,7 +132,7 @@ function createFakeDataset(rootDir, { extension = 'png' } = {}) {
   atomicWriteJson(path.join(paths.conversations, `${conversationId}.json`), {
     schemaVersion: 1,
     conversationId,
-    username: 'fake@chatroom',
+    username: '43697551884@chatroom',
     displayName: 'Fake group',
     messages: [{
       messageId: 'msg_fake',
@@ -146,14 +175,19 @@ function createFakeDataset(rootDir, { extension = 'png' } = {}) {
       },
     },
   });
-  return { imageId, annotationPath: path.join(paths.annotations, `${conversationId}.json`) };
+  const item = readDatasetItems(rootDir).items[0];
+  return {
+    imageId: item.imageId,
+    sourceImageId: imageId,
+    annotationPath: path.join(paths.annotations, `${conversationId}.json`),
+  };
 }
 
 test('Codex classification skips GIF media before launching the CLI', async () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-skip-gif-'));
   const datasetDir = path.join(temp, 'dataset');
   try {
-    const { imageId, annotationPath } = createFakeDataset(datasetDir, { extension: 'gif' });
+    const { imageId, sourceImageId, annotationPath } = createFakeDataset(datasetDir, { extension: 'gif' });
     const result = await runJewelryClassification({
       datasetDir,
       imageIds: [imageId],
@@ -161,8 +195,8 @@ test('Codex classification skips GIF media before launching the CLI', async () =
     });
     assert.equal(result.skipped, true);
     assert.equal(result.total, 0);
-    const annotation = readJson(annotationPath).items[imageId];
-    assert.equal(annotation.state, 'skipped');
+    const annotation = readJson(annotationPath).items[sourceImageId];
+    assert.equal(annotation.current.state, 'skipped');
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
@@ -188,6 +222,7 @@ const finish = () => {
   const ids = schema.properties.results.items.properties.imageId.enum;
   const results = ids.map((imageId) => ({
     imageId,
+    jewelryDecision: 'jewelry',
     categoryId: 'pendant',
     categoryDecision: 'selected',
     processIds: ['x5g'],
@@ -205,12 +240,72 @@ else finish();
 `, 'utf8');
 }
 
+test('classification preparation reports targets without learning examples', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-codex-prepare-'));
+  try {
+    const { imageId } = createFakeDataset(path.join(temp, 'dataset'));
+    const prepared = prepareJewelryClassification({ datasetDir: path.join(temp, 'dataset'), imageIds: [imageId] });
+    assert.equal(prepared.targetCount, 1);
+    assert.equal(prepared.exampleCount, 0);
+    assert.equal(prepared.attachmentLimit, 10);
+    assert.equal(prepared.targetBatchSize, 10);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('classification attachment budget supports 10+0, 9+1, and 8+2', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-codex-examples-'));
+  const datasetDir = path.join(temp, 'dataset');
+  const learningDbPath = path.join(temp, 'learning.db');
+  try {
+    const { imageId } = createFakeDataset(datasetDir);
+    const saveExample = (suffix, categoryId) => {
+      const imagePath = path.join(temp, 'example-' + suffix + '.png');
+      fs.writeFileSync(imagePath, Buffer.from('example-' + suffix));
+      saveLearningSample(learningDbPath, { absolutePath: imagePath }, {
+        schemaVersion: 2,
+        datasetId: 'dataset-learning',
+        imageId: 'guid-' + suffix,
+        sourceImageId: 'source-' + suffix,
+        source: {
+          conversation: { username: '43697551884@chatroom' },
+          message: { messageId: 'message-' + suffix, senderWxid: 'sender-' + suffix },
+          image: { sha256: 'hash-' + suffix },
+        },
+        context: { before: [], after: [] },
+        archive: { day: '2026-07-28' },
+        current: {
+          state: 'classified',
+          source: 'manual',
+          jewelryDecision: 'jewelry',
+          category: { id: categoryId },
+          processes: [],
+          evidence: ['visual'],
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    };
+    const noExamples = prepareJewelryClassification({ datasetDir, imageIds: [imageId] });
+    assert.equal(noExamples.targetBatchSize, 10);
+    saveExample('one', 'ring');
+    const oneExample = prepareJewelryClassification({ datasetDir, imageIds: [imageId], learningDbPath });
+    assert.equal(oneExample.exampleCount, 1);
+    assert.equal(oneExample.targetBatchSize, 9);
+    saveExample('two', 'pendant');
+    const twoExamples = prepareJewelryClassification({ datasetDir, imageIds: [imageId], learningDbPath });
+    assert.equal(twoExamples.exampleCount, 2);
+    assert.equal(twoExamples.targetBatchSize, 8);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
 test('fake Codex CLI covers progress, failure, retry, and cancellation without account usage', async () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-fake-codex-'));
   const datasetDir = path.join(temp, 'dataset');
   const fakePath = path.join(temp, 'fake-codex.js');
   try {
-    const { imageId, annotationPath } = createFakeDataset(datasetDir);
+    const { imageId, sourceImageId, annotationPath } = createFakeDataset(datasetDir);
     writeFakeCodex(fakePath);
     const progress = [];
     const failedRun = await runJewelryClassification({
@@ -220,7 +315,7 @@ test('fake Codex CLI covers progress, failure, retry, and cancellation without a
       onProgress: (event) => progress.push(event.phase),
     });
     assert.equal(failedRun.status, 'completed_with_errors');
-    assert.equal(readJson(annotationPath).items[imageId].state, 'failed');
+    assert.equal(readJson(annotationPath).items[sourceImageId].current.state, 'failed');
 
     const retriedRun = await runJewelryClassification({
       datasetDir,
@@ -229,10 +324,10 @@ test('fake Codex CLI covers progress, failure, retry, and cancellation without a
       onProgress: (event) => progress.push(event.phase),
     });
     assert.equal(retriedRun.status, 'completed');
-    const retried = readJson(annotationPath).items[imageId];
-    assert.equal(retried.state, 'classified');
-    assert.equal(retried.productCategory.id, 'pendant');
-    assert.deepEqual(retried.processes.ids, ['x5g']);
+    const retried = readJson(annotationPath).items[sourceImageId];
+    assert.equal(retried.current.state, 'classified');
+    assert.equal(retried.current.category.id, 'pendant');
+    assert.deepEqual(retried.current.processes.map((item) => item.id), ['x5g']);
     assert.ok(progress.includes('classification-event'));
 
     const autoDuplicate = await runJewelryClassification({
@@ -251,11 +346,11 @@ test('fake Codex CLI covers progress, failure, retry, and cancellation without a
     setTimeout(() => cancelJewelryClassification(), 100);
     const cancelledRun = await cancelling;
     assert.equal(cancelledRun.status, 'cancelled');
-    const afterCancel = readJson(annotationPath).items[imageId];
+    const afterCancel = readJson(annotationPath).items[sourceImageId];
     assert.ok(listClassificationRuns(datasetDir).length >= 2);
     assert.equal(fs.existsSync(path.join(datasetDir, 'classification', 'runs')), false);
-    assert.equal(afterCancel.state, 'classified');
-    assert.equal(afterCancel.productCategory.id, 'pendant');
+    assert.equal(afterCancel.current.state, 'classified');
+    assert.equal(afterCancel.current.category.id, 'pendant');
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

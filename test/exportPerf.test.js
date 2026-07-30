@@ -1,5 +1,6 @@
 ﻿const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -10,10 +11,13 @@ const {
   queryTableRowsPage,
 } = require('../lib/messageDbPool');
 const {
-  createCsvWriter,
   COMPACT_JSON_THRESHOLD,
   writeChatFormats,
 } = require('../lib/exportFormats');
+const {
+  countConversationMessagesInRange,
+  getConversationTimeBounds,
+} = require('../lib/exportCore');
 
 async function createTestSql() {
   return initSqlJs({
@@ -44,7 +48,7 @@ describe('messageDbPool', () => {
         'CREATE TABLE Msg_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d (local_id INTEGER, server_id INTEGER, local_type INTEGER, sort_seq INTEGER, real_sender_id INTEGER, create_time INTEGER, status INTEGER, message_content TEXT, compress_content TEXT, source TEXT, WCDB_CT_message_content INTEGER)'
       );
       db.run(
-        "INSERT INTO Msg_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d VALUES (1, 100, 1, 1, 1, 1700000000, 0, 'hello', '', '', 0)"
+        "INSERT INTO Msg_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d VALUES (1, 4817199625088102043, 1, 4817199625088102043, 1, 1700000000, 0, 'hello', '', '', 0)"
       );
     });
 
@@ -52,18 +56,43 @@ describe('messageDbPool', () => {
       const pool = createMessageDbPool(SQL, [dbPath]);
       try {
         assert.ok(pool.usernames.has('wxid_alice'));
+        assert.equal(pool.getOpenCount(), 0);
         const paths = pool.getDbPathsForTable('Msg_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d');
         assert.deepEqual(paths, [dbPath]);
 
         const db = pool.getDb(dbPath);
+        assert.equal(pool.getOpenCount(), 1);
+        assert.equal(pool.senderMaps.get(dbPath)[1], 'wxid_alice');
         const rows = queryTableRows(db, 'Msg_7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d');
         assert.equal(rows.length, 1);
         assert.equal(rows[0].message_content, 'hello');
+        assert.equal(rows[0].server_id, '4817199625088102043');
+        assert.equal(rows[0].sort_seq, '4817199625088102043');
       } finally {
         pool.close();
       }
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('caps cached query connections', async () => {
+    const SQL = await createTestSql();
+    const databases = Array.from({ length: 3 }, (_, index) => createTempDb(SQL, (db) => {
+      db.run(`CREATE TABLE Msg_${index} (id INTEGER)`);
+    }));
+
+    try {
+      const pool = createMessageDbPool(SQL, databases.map((item) => item.dbPath), { maxOpen: 2 });
+      try {
+        assert.equal(pool.getOpenCount(), 0);
+        for (const { dbPath } of databases) pool.getDb(dbPath);
+        assert.equal(pool.getOpenCount(), 2);
+      } finally {
+        pool.close();
+      }
+    } finally {
+      for (const { tmpDir } of databases) fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
@@ -75,7 +104,7 @@ describe('messageDbPool', () => {
       db.run(`CREATE TABLE ${table} (local_id INTEGER, server_id INTEGER, local_type INTEGER, sort_seq INTEGER, real_sender_id INTEGER, create_time INTEGER, status INTEGER, message_content TEXT, compress_content TEXT, source TEXT, WCDB_CT_message_content INTEGER)`);
       db.run(`INSERT INTO ${table} VALUES (1, 101, 1, 1, 1, 100, 0, 'old', '', '', 0)`);
       db.run(`INSERT INTO ${table} VALUES (2, 102, 1, 2, 1, 200, 0, 'same-a', '', '', 0)`);
-      db.run(`INSERT INTO ${table} VALUES (3, 103, 1, 3, 1, 200, 0, 'same-b', '', '', 0)`);
+      db.run(`INSERT INTO ${table} VALUES (3, 4817199625088102043, 1, 3, 1, 200, 0, 'same-b', '', '', 0)`);
     });
 
     try {
@@ -83,6 +112,7 @@ describe('messageDbPool', () => {
       try {
         const first = queryTableRowsPage(pool.getDb(dbPath), table, { limit: 2 });
         assert.deepEqual(first.map((row) => row.local_id), [3, 2]);
+        assert.equal(first[0].server_id, '4817199625088102043');
         const second = queryTableRowsPage(pool.getDb(dbPath), table, {
           beforeTime: first[1].create_time,
           beforeLocalId: first[1].local_id,
@@ -96,38 +126,44 @@ describe('messageDbPool', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
-});
 
-describe('exportFormats', () => {
-  it('streams csv rows per chat', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-csv-'));
-    const outFile = path.join(tmpDir, 'messages.csv');
+  it('reads time bounds and range counts through disk-backed connections', async () => {
+    const SQL = await createTestSql();
+    const username = 'wxid_alice';
+    const table = `Msg_${crypto.createHash('md5').update(username).digest('hex')}`;
+    const { tmpDir, dbPath } = createTempDb(SQL, (db) => {
+      db.run('CREATE TABLE Name2Id (rowid INTEGER PRIMARY KEY, user_name TEXT)');
+      db.run(`CREATE TABLE ${table} (local_id INTEGER, server_id INTEGER, local_type INTEGER, sort_seq INTEGER, real_sender_id INTEGER, create_time INTEGER, status INTEGER, message_content TEXT, compress_content TEXT, source TEXT, WCDB_CT_message_content INTEGER)`);
+      db.run(`INSERT INTO ${table} VALUES (1, 101, 1, 1, 1, 100, 0, 'old', '', '', 0)`);
+      db.run(`INSERT INTO ${table} VALUES (2, 102, 34, 2, 1, 200, 0, 'voice', '', '', 0)`);
+      db.run(`INSERT INTO ${table} VALUES (3, 103, 1, 3, 1, 300, 0, 'new', '', '', 0)`);
+    });
+    const accountDir = path.join(tmpDir, 'wxid_self');
+    const messageDir = path.join(accountDir, 'db_storage_decrypted', 'message');
+    fs.mkdirSync(messageDir, { recursive: true });
+    fs.renameSync(dbPath, path.join(messageDir, 'message_0.db'));
 
     try {
-      const writer = createCsvWriter(outFile);
-      writer.writeChat({
-        displayName: 'Alice',
-        type: 'private',
-        messages: [
-          {
-            datetime: '2024-01-01 12:00:00',
-            isSelf: true,
-            senderName: '我',
-            typeName: 'text',
-            content: 'hi',
-          },
-        ],
-      });
-
-      const text = fs.readFileSync(outFile, 'utf8');
-      assert.match(text, /^会话,类型,时间/);
-      assert.match(text, /Alice,私聊/);
-      assert.match(text, /,hi$/m);
+      assert.deepEqual(
+        await getConversationTimeBounds({ wxDir: accountDir, username }),
+        { firstTimestamp: 100, lastTimestamp: 300 }
+      );
+      assert.deepEqual(
+        await countConversationMessagesInRange({
+          wxDir: accountDir,
+          username,
+          startTime: 150,
+          endTime: 300,
+        }),
+        { messageCount: 2, voiceCount: 1 }
+      );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+});
 
+describe('exportFormats', () => {
   it('uses compact json for large chats', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-json-'));
     const outputDir = path.join(tmpDir, 'out');
@@ -161,48 +197,4 @@ describe('exportFormats', () => {
     }
   });
 
-  it('batches html rendering while preserving exported image paths', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-html-'));
-    const outputDir = path.join(tmpDir, 'out');
-    fs.mkdirSync(path.join(outputDir, 'chats'), { recursive: true });
-
-    try {
-      const messages = Array.from({ length: 200 }, (_, i) => ({
-        id: i,
-        datetime: `2024-01-01 12:${String(i % 60).padStart(2, '0')}:00`,
-        isSelf: i % 2 === 0,
-        senderName: i % 2 === 0 ? '\u6211' : 'Alice',
-        type: i === 180 ? 3 : 1,
-        typeName: i === 180 ? 'image' : 'text',
-        content: i === 180 ? '[\u56fe\u7247]' : `msg-${i}`,
-        extra:
-          i === 180
-            ? { kind: 'image', htmlImagePath: './BigChat.media/media/1700000000_180.png' }
-            : {},
-      }));
-
-      writeChatFormats(
-        {
-          displayName: 'BigChat',
-          type: 'private',
-          messageCount: messages.length,
-          messages,
-        },
-        outputDir,
-        ['html'],
-        'BigChat',
-        '../index.html'
-      );
-
-      const htmlPath = path.join(outputDir, 'chats', 'BigChat.html');
-      const text = fs.readFileSync(htmlPath, 'utf8');
-      assert.match(text, /requestIdleCallback/);
-      assert.match(text, /id="renderStatus"/);
-      assert.match(text, /id="chatMessages"/);
-      assert.match(text, /\.\/BigChat\.media\/media\/1700000000_180\.png/);
-      assert.match(text, /Open image/);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
 });

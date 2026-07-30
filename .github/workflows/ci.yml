@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-validation:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify syntax
+        run: npm run test:syntax
+
+      - name: Run tests
+        run: npm test
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build hook DLL from source
+        run: npm run build:hook
+
+      - uses: actions/cache@v4
+        with:
+          path: assets/models
+          key: whisper-small-2d67713f236afa48a18992566e7647f6ca848e13
+
+      - name: Build unsigned Windows validation package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist
+
+      - name: Report artifact signatures
+        shell: pwsh
+        run: ./scripts/verify-release-signatures.ps1 -RequireDist -AllowUnsigned
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-validation-unsigned
+          path: dist/*
+          if-no-files-found: error

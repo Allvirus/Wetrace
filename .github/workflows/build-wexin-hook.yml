@@ -26,8 +26,14 @@ jobs:
           $dll = Get-ChildItem native/wexin-hook/build -Recurse -Filter wexin_hook.dll | Select-Object -First 1
           if (-not $dll) { throw 'wexin_hook.dll not found' }
           Copy-Item $dll.FullName assets/dll/wexin_hook.dll -Force
+          $hash = (Get-FileHash -Algorithm SHA256 assets/dll/wexin_hook.dll).Hash.ToLowerInvariant()
+          Set-Content -Encoding ascii assets/dll/wexin_hook.dll.sha256 $hash
+          $status = (Get-AuthenticodeSignature assets/dll/wexin_hook.dll).Status
+          if ($status -ne 'Valid') { Write-Warning ('DLL is not signed: ' + $status) }
 
       - uses: actions/upload-artifact@v4
         with:
           name: wexin_hook-dll
-          path: assets/dll/wexin_hook.dll
+          path: |
+            assets/dll/wexin_hook.dll
+            assets/dll/wexin_hook.dll.sha256

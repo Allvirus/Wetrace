@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jewelry Image Classification"
+  short_description: "Classify jewelry images with traceable learning"
+  default_prompt: "Use $classify-jewelry-images to classify jewelry images with traceable evidence."

@@ -74,7 +74,7 @@ npm start
 
 自动分类需要本机已安装并登录 Codex CLI。Wetrace 使用 [Codex 非交互模式](https://developers.openai.com/codex/noninteractive)提交每批最多 8 张图片；CLI 不可用或分类失败时，已经同步的 SQLite 和图片不会回滚。
 
-扫描失败时，程序会自动保存诊断日志（不含聊天记录与密钥），可在失败提示中打开日志文件夹排查问题。
+扫描失败时，程序会自动保存经过脱敏的诊断日志。分享日志前仍应检查其中是否包含敏感信息。
 
 ### 账号数据目录结构
 
@@ -145,15 +145,12 @@ npm run dist:installer
 
 产物在 `dist/` 目录，文件名类似 `微迹 Wetrace-2.1.0-portable.exe`（版本号以 `package.json` 为准）。
 
-打包时会自动下载语音转文字模型（约 250MB）。若下载遇 SSL 证书错误，可尝试国内镜像：
+打包时会自动下载固定版本的语音转文字模型（约 250MB），并校验每个文件的大小和 SHA-256。若官方源访问缓慢，可使用 HTTPS 国内镜像：
 
 ```bash
-# 方式一：HuggingFace 国内镜像（推荐）
+# HuggingFace 国内镜像（仍会执行 TLS 和文件完整性校验）
 set WETRACE_HF_ENDPOINT=https://hf-mirror.com
 npm run download-whisper-model
-
-# 方式二：临时跳过证书校验（仅下载模型时使用）
-npm run download-whisper-model -- --insecure
 ```
 
 ---

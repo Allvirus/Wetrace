@@ -139,6 +139,48 @@ test('flat NoteCache files are matched by content MD5', () => {
   }
 });
 
+test('dataset resource cache is parsed by the existing note image flow', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-resource-cache-image-'));
+  const accountDir = path.join(tmpDir, 'account');
+  const decryptedDir = path.join(tmpDir, 'decrypted');
+  const outputDir = path.join(tmpDir, 'dataset');
+  const resourceCacheDir = path.join(outputDir, 'runtime', 'note-resource-cache');
+  const image = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64'
+  );
+  const md5 = crypto.createHash('md5').update(image).digest('hex');
+  const message = {
+    id: 10,
+    serverId: '1000',
+    createTime: 200,
+    type: 49,
+    extra: {
+      kind: 'note',
+      recordItems: [{ kind: 'image', fullMd5: md5 }],
+    },
+  };
+  try {
+    fs.mkdirSync(resourceCacheDir, { recursive: true });
+    fs.writeFileSync(path.join(resourceCacheDir, md5 + '.bin'), image);
+    const imageCtx = initImageExportContext({
+      accountDir,
+      decryptedDir,
+      outputDir,
+      resourceCacheDir,
+      allowContentScan: false,
+      strictMatch: true,
+      outputLayout: 'dataset',
+    });
+    const result = exportChatImages({ messages: [message] }, imageCtx, 'conv_resource_cache');
+    const outputPath = message.extra.recordItems[0].outputImagePath;
+    assert.equal(result.exported, 1);
+    assert.ok(outputPath);
+    assert.deepEqual(fs.readFileSync(path.join(outputDir, ...outputPath.split('/'))), image);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
 test('persistent image lookup is scoped to the exact message prefix', () => {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-persistent-images-'));
   const chatFileBase = 'group_abc123';

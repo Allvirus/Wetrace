@@ -6,12 +6,15 @@ const path = require('path');
 
 const {
   decryptAllDatabases,
+  getPendingDatabaseRelativePaths,
   getDatabaseSourceFingerprint,
 } = require('../lib/decryptDb');
 const {
   buildDecryptInfo,
   decryptWeChatData,
   getEncryptedStorageFingerprint,
+  readDatabaseKeysCache,
+  writeDatabaseKeysCache,
 } = require('../lib/decryptCore');
 
 function createFixture() {
@@ -43,6 +46,52 @@ function keysFor(...relativePaths) {
 test('normal conversation scans never escalate to force decrypt', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'electron', 'scanWorker.js'), 'utf8');
   assert.doesNotMatch(source, /ensureDecrypted\(\{[\s\S]*forceDecrypt:\s*true/);
+});
+test('pending database detection includes only changed files', () => {
+  const fixture = createFixture();
+  try {
+    const relA = 'message/message_0.db';
+    const relB = 'message/message_1.db';
+    const dbB = path.join(fixture.dbDir, relB);
+    const outB = path.join(fixture.outDir, relB);
+    fs.writeFileSync(dbB, Buffer.alloc(4096, 2));
+    fs.writeFileSync(outB, 'old-output-b');
+    const pending = getPendingDatabaseRelativePaths({
+      dbDir: fixture.dbDir,
+      outDir: fixture.outDir,
+      decryptedFiles: {
+        [relA]: getDatabaseSourceFingerprint(fixture.dbPath),
+        [relB]: 'stale-fingerprint',
+      },
+    });
+    assert.deepEqual(pending, [relB]);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+test('database key cache merges verified keys without storing the passphrase', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-key-cache-'));
+  const cachePath = path.join(root, 'runtime', '.wexin_keys.dpapi');
+  try {
+    writeDatabaseKeysCache(cachePath, {
+      _db_dir: 'source/db_storage',
+      _passphrase_hex: 'secret-passphrase',
+      'message/message_0.db': { enc_key: 'a'.repeat(64), salt: '1'.repeat(32) },
+    });
+    writeDatabaseKeysCache(cachePath, {
+      _db_dir: 'source/db_storage',
+      'message/message_1.db': { enc_key: 'b'.repeat(64), salt: '2'.repeat(32) },
+    });
+    const protectedText = fs.readFileSync(cachePath, 'utf8');
+    assert.match(protectedText, /^wetrace-dpapi-v1:/);
+    assert.doesNotMatch(protectedText, /secret-passphrase|aaaaaaaaaaaaaaaa/);
+    const cached = readDatabaseKeysCache(cachePath);
+    assert.equal(cached._passphrase_hex, undefined);
+    assert.equal(cached['message/message_0.db'].enc_key, 'a'.repeat(64));
+    assert.equal(cached['message/message_1.db'].enc_key, 'b'.repeat(64));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 test('unchanged database reuses its existing decrypted output', () => {
   const fixture = createFixture();

@@ -2,7 +2,7 @@
 
 const JEWELRY_DATASET_KEY = 'wetrace.jewelryDatasetDirsByAccount';
 const LEGACY_JEWELRY_DATASET_KEY = 'wetrace.jewelryDatasetDir';
-const JEWELRY_CONSENT_KEY = 'wetrace.jewelryCodexConsent';
+const RECORDS_START_TIME_KEY = 'wetrace.recordsStartTimesByAccount';
 
 const wxDirInput = document.getElementById('wxDir');
 const accountField = document.getElementById('accountField');
@@ -53,6 +53,11 @@ const convSummary = document.getElementById('convSummary');
 const exportSummary = document.getElementById('exportSummary');
 const exportEstimateLine = document.getElementById('exportEstimateLine');
 const convSearch = document.getElementById('convSearch');
+const recordsStartDateControl = document.getElementById('recordsStartDateControl');
+const recordsStartYear = document.getElementById('recordsStartYear');
+const recordsStartMonth = document.getElementById('recordsStartMonth');
+const recordsStartDay = document.getElementById('recordsStartDay');
+const clearRecordsStartTimeBtn = document.getElementById('clearRecordsStartTimeBtn');
 const selectAllBtn = document.getElementById('selectAllBtn');
 const selectNoneBtn = document.getElementById('selectNoneBtn');
 const batchTimeBtn = document.getElementById('batchTimeBtn');
@@ -104,6 +109,11 @@ const viewerStartDate = document.getElementById('viewerStartDate');
 const viewerEndDate = document.getElementById('viewerEndDate');
 const viewerSyncText = document.getElementById('viewerSyncText');
 const viewerSyncImages = document.getElementById('viewerSyncImages');
+const viewerNoteHydration = document.getElementById('viewerNoteHydration');
+const viewerNoteHydrationSummary = document.getElementById('viewerNoteHydrationSummary');
+const viewerNoteHydrationStages = document.getElementById('viewerNoteHydrationStages');
+const viewerNoteHydrationList = document.getElementById('viewerNoteHydrationList');
+const viewerNoteUpdateBtn = document.getElementById('viewerNoteUpdateBtn');
 const viewerPickDatasetBtn = document.getElementById('viewerPickDatasetBtn');
 const viewerDatasetPath = document.getElementById('viewerDatasetPath');
 const viewerProgressLog = document.getElementById('viewerProgressLog');
@@ -112,20 +122,31 @@ const viewerClassificationPanel = document.getElementById('viewerClassificationP
 const viewerCloseReviewBtn = document.getElementById('viewerCloseReviewBtn');
 const viewerClassificationSummary = document.getElementById('viewerClassificationSummary');
 const viewerClassificationState = document.getElementById('viewerClassificationState');
+const viewerClassificationDay = document.getElementById('viewerClassificationDay');
+const viewerClassificationDateFrom = document.getElementById('viewerClassificationDateFrom');
+const viewerClassificationDateTo = document.getElementById('viewerClassificationDateTo');
+const viewerClassificationApplyDatesBtn = document.getElementById('viewerClassificationApplyDatesBtn');
 const viewerClassificationGroup = document.getElementById('viewerClassificationGroup');
 const viewerClassificationCategory = document.getElementById('viewerClassificationCategory');
 const viewerClassificationProcess = document.getElementById('viewerClassificationProcess');
 const viewerClassificationRun = document.getElementById('viewerClassificationRun');
 const viewerClassificationSender = document.getElementById('viewerClassificationSender');
-const viewerClassificationPrevBtn = document.getElementById('viewerClassificationPrevBtn');
-const viewerClassificationNextBtn = document.getElementById('viewerClassificationNextBtn');
-const viewerClassificationPageInfo = document.getElementById('viewerClassificationPageInfo');
 const viewerBatchProcesses = document.getElementById('viewerBatchProcesses');
 const viewerBatchNoProcess = document.getElementById('viewerBatchNoProcess');
 const viewerApplyBatchProcessesBtn = document.getElementById('viewerApplyBatchProcessesBtn');
+const viewerSelectCurrentClassificationBtn = document.getElementById('viewerSelectCurrentClassificationBtn');
+const viewerClearClassificationSelectionBtn = document.getElementById('viewerClearClassificationSelectionBtn');
 const viewerRetryClassificationBtn = document.getElementById('viewerRetryClassificationBtn');
+const viewerRetrySelectedClassificationBtn = document.getElementById('viewerRetrySelectedClassificationBtn');
 const viewerCancelClassificationBtn = document.getElementById('viewerCancelClassificationBtn');
 const viewerClassificationList = document.getElementById('viewerClassificationList');
+const viewerUploadSimilarityBtn = document.getElementById('viewerUploadSimilarityBtn');
+const viewerSimilarityPanel = document.getElementById('viewerSimilarityPanel');
+const viewerCloseSimilarityBtn = document.getElementById('viewerCloseSimilarityBtn');
+const viewerSimilaritySummary = document.getElementById('viewerSimilaritySummary');
+const viewerSimilarityAllHistory = document.getElementById('viewerSimilarityAllHistory');
+const viewerRefreshSimilarityBtn = document.getElementById('viewerRefreshSimilarityBtn');
+const viewerSimilarityList = document.getElementById('viewerSimilarityList');
 const viewerLightbox = document.getElementById('viewerLightbox');
 const viewerLightboxImage = document.getElementById('viewerLightboxImage');
 const viewerLightboxClose = document.getElementById('viewerLightboxClose');
@@ -187,9 +208,10 @@ const EXPORT_PREP_MAX = 10;
 const EXPORT_WORK_SPAN = 88;
 const EXPORT_ETA_MIN_ELAPSED_SEC = 15;
 const EXPORT_ETA_UPDATE_MS = 5000;
-const VIEWER_SYNC_INTERVAL_MS = 60 * 1000;
+const VIEWER_SYNC_INTERVAL_MS = 10 * 1000;
 let viewerIsOpen = false;
 let viewerSyncing = false;
+let viewerStatusChecking = false;
 let viewerSyncTimer = null;
 let viewerFingerprint = null;
 let viewerMediaFingerprint = null;
@@ -205,9 +227,15 @@ let viewerRequestToken = 0;
 let viewerFilterTimer = null;
 let viewerDatasetDir = '';
 let viewerActiveAccountKey = '';
+let viewerEntryStartTime = null;
 let viewerDatasetSyncing = false;
 let viewerDatasetSyncChain = Promise.resolve();
 const viewerDatasetSyncSignatures = new Map();
+let viewerNoteHydrationTasks = [];
+let viewerNoteHydrationSummaryData = null;
+let viewerNoteHydrationRunning = false;
+let viewerNoteHydrationActiveStage = '';
+let viewerNoteHydrationRequestToken = 0;
 let viewerGroupLoadConfirmed = false;
 let viewerConfirmedGroups = new Set();
 let viewerSelectedGroups = new Set();
@@ -216,14 +244,26 @@ let viewerGroupSearchIndexToken = 0;
 const viewerGroupSyncOptions = new Map();
 let jewelryProductCategories = [];
 let jewelryProcesses = [];
-let viewerClassificationItems = [];
 let viewerClassificationRuns = [];
+let viewerClassificationConversations = [];
 let viewerSelectedClassificationImages = new Set();
+let viewerSimilarityQuery = null;
+let viewerSimilarityRequestToken = 0;
 let viewerClassificationFilterTimer = null;
-let viewerClassificationOffset = 0;
 let viewerClassificationTotal = 0;
-let viewerClassificationLimit = 50;
+let viewerClassificationStateCounts = {};
+let viewerClassificationLimit = 12;
 let viewerClassificationRequestToken = 0;
+let viewerClassificationLoadVersion = 0;
+let viewerClassificationDayCounts = {};
+let viewerClassificationObserver = null;
+let viewerClassificationLoadedDatasetDir = '';
+let viewerClassificationLoadedFilterSignature = '';
+let viewerClassificationDateDatasetDir = '';
+let viewerClassificationDateInitialized = false;
+let viewerClassificationRangeMode = 'latest';
+const viewerClassificationDayLoads = new Map();
+const viewerExpandedClassificationDays = new Set();
 
 function isRealDisplayName(displayName, wxid) {
   return Boolean(displayName && displayName !== wxid);
@@ -1114,7 +1154,9 @@ async function selectAccount(accountPath) {
   if (!datasetDir) {
     accountHint.textContent = '请先为此账号选择数据集存放位置，再进入群聊记录。';
     accountHint.className = 'hint error';
+    return;
   }
+  await openSelectedAccountRecords(accountPath);
 }
 
 function renderReadiness(readiness) {
@@ -2595,6 +2637,17 @@ async function refreshConversationCacheHint() {
   scanBtn.textContent = '重新扫描';
 }
 
+async function openSelectedAccountRecords(accountPath) {
+  if (!accountPath || selectedAccountPath !== accountPath) return false;
+  await refreshConversationCacheHint();
+  if (selectedAccountPath !== accountPath) return false;
+  if (currentConversationCache?.accountPath === accountPath) {
+    return useCachedConversations(accountPath, currentConversationCache.id);
+  }
+  await scanConversations();
+  return viewerIsOpen;
+}
+
 function renderConversationCacheList(caches) {
   cacheList.innerHTML = '';
 
@@ -2726,8 +2779,14 @@ async function handleResetAllToolTraces() {
     return;
   }
 
-  const additionalAccountPaths = selectedAccountPath ? [selectedAccountPath] : [];
-  const result = await window.exporter.resetAllToolTraces({ additionalAccountPaths });
+  const additionalAccountPaths = [...new Set([
+    ...scannedAccounts.map((account) => account.path),
+    selectedAccountPath,
+  ].filter(Boolean))];
+  const result = await window.exporter.resetAllToolTraces({
+    additionalAccountPaths,
+    datasetDirs: getConfiguredViewerDatasetDirs(),
+  });
   if (!result.ok) {
     await showFriendlyError('清除失败', result.error || '操作失败');
     return;
@@ -2827,6 +2886,7 @@ async function deleteConversationCache(accountPath, scanId) {
 
 function applyConversationScanResult(result, { fromCache = false, unchanged = false, incremental = null } = {}) {
   renderConversationList(result.conversations || []);
+  restoreRecordsStartTimeForAccount();
   setStep(3);
 
   let logMessage;
@@ -2857,7 +2917,7 @@ async function useCachedConversations(accountPath = null, scanId = null) {
   const targetPath = accountPath || getSelectedAccountPath();
   if (!targetPath) {
     await showFriendlyError('请选择账号', '请先选择要导出的不信账号。');
-    return;
+    return false;
   }
 
   const rootDir = wxDirInput.value.trim();
@@ -2878,7 +2938,7 @@ async function useCachedConversations(accountPath = null, scanId = null) {
   if (!cacheResult.ok || !cacheResult.cache?.conversations?.length) {
     await showFriendlyError('缓存不可用', '未找到该扫描记录，请重新扫描。');
     void refreshConversationCacheHint();
-    return;
+    return false;
   }
 
   currentConversationCache = cacheResult.cache;
@@ -2890,6 +2950,8 @@ async function useCachedConversations(accountPath = null, scanId = null) {
     },
     { fromCache: true }
   );
+  await openRecordViewer();
+  return true;
 }
 
 function showScanToast(title, message, note = null) {
@@ -2983,6 +3045,7 @@ async function scanConversations() {
     unchanged: Boolean(result.unchanged),
     incremental: result.incremental || null,
   });
+  await openRecordViewer();
   scanBtn.textContent = '重新扫描';
 
   if (rootDir && resolvedAccountPath) {
@@ -3180,6 +3243,83 @@ function getViewerAccountKey(accountPath = getViewerAccountPath()) {
   return accountPath ? `path:${accountPath.replace(/\\/g, '/').toLowerCase()}` : '';
 }
 
+function recordsStartTimeToUnix(value) {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) return null;
+  return Math.floor(date.getTime() / 1000);
+}
+
+function loadRecordsStartTimeMap() {
+  try {
+    const value = JSON.parse(localStorage.getItem(RECORDS_START_TIME_KEY) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function getRecordsStartDateValue() {
+  const year = recordsStartYear?.value.trim() || '';
+  const month = recordsStartMonth?.value.trim() || '';
+  const day = recordsStartDay?.value.trim() || '';
+  if (!year && !month && !day) return '';
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
+function setRecordsStartDateValue(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(typeof value === 'string' ? value : '');
+  recordsStartYear.value = match?.[1] || '';
+  recordsStartMonth.value = match?.[2] || '';
+  recordsStartDay.value = match?.[3] || '';
+  recordsStartDateControl?.classList.remove('invalid');
+}
+
+function validateRecordsStartDate() {
+  const value = getRecordsStartDateValue();
+  const valid = !value || recordsStartTimeToUnix(value) != null;
+  recordsStartDateControl?.classList.toggle('invalid', !valid);
+  return valid;
+}
+
+function focusInvalidRecordsStartDatePart() {
+  const year = recordsStartYear.value;
+  const month = Number(recordsStartMonth.value);
+  const day = Number(recordsStartDay.value);
+  const input = !/^\d{4}$/.test(year)
+    ? recordsStartYear
+    : month < 1 || month > 12 ? recordsStartMonth : recordsStartDay;
+  input.focus();
+  input.select();
+}
+
+function saveRecordsStartTimeForAccount(accountKey = getViewerAccountKey()) {
+  if (!accountKey || !recordsStartYear) return;
+  if (!validateRecordsStartDate()) return;
+  const values = loadRecordsStartTimeMap();
+  const value = getRecordsStartDateValue();
+  if (value) values[accountKey] = value;
+  else delete values[accountKey];
+  localStorage.setItem(RECORDS_START_TIME_KEY, JSON.stringify(values));
+  if (clearRecordsStartTimeBtn) clearRecordsStartTimeBtn.disabled = !value;
+}
+
+function restoreRecordsStartTimeForAccount(accountKey = getViewerAccountKey()) {
+  if (!recordsStartYear) return;
+  const values = loadRecordsStartTimeMap();
+  const storedValue = accountKey ? values[accountKey] || '' : '';
+  setRecordsStartDateValue(storedValue);
+  if (clearRecordsStartTimeBtn) clearRecordsStartTimeBtn.disabled = !getRecordsStartDateValue();
+}
 function loadViewerDatasetDirectoryMap() {
   try {
     const value = JSON.parse(localStorage.getItem(JEWELRY_DATASET_KEY) || '{}');
@@ -3262,6 +3402,7 @@ async function pickAccountDatasetDirectory() {
   if (datasetDir) {
     accountHint.textContent = '';
     accountHint.className = 'hint';
+    await openSelectedAccountRecords(accountPath);
   } else if (!currentDir) {
     accountHint.textContent = '请先为此账号选择数据集存放位置，再进入群聊记录。';
     accountHint.className = 'hint error';
@@ -3311,9 +3452,12 @@ async function refreshViewerGroupSearchIndex() {
 }
 
 function getViewerDateRange() {
-  const start = viewerStartDate.value
+  const selectedStart = viewerStartDate.value
     ? Math.floor(new Date(`${viewerStartDate.value}T00:00:00`).getTime() / 1000)
     : null;
+  const start = viewerEntryStartTime == null
+    ? selectedStart
+    : selectedStart == null ? viewerEntryStartTime : Math.max(selectedStart, viewerEntryStartTime);
   const endExclusive = viewerEndDate.value
     ? Math.floor(new Date(`${viewerEndDate.value}T00:00:00`).getTime() / 1000) + SECONDS_PER_DAY
     : null;
@@ -3342,7 +3486,7 @@ function saveCurrentViewerSyncOption() {
 
 function restoreViewerSyncOption(group) {
   const option = viewerGroupSyncOptions.get(group.username);
-  viewerStartDate.value = option?.startDate || '';
+  viewerStartDate.value = option?.startDate || unixToDateInputValue(viewerEntryStartTime);
   viewerEndDate.value = option?.endDate || '';
   viewerSyncText.checked = option?.includeText !== false;
   viewerSyncImages.checked = option?.includeImages !== false;
@@ -3357,7 +3501,7 @@ function getViewerDatasetSelections() {
       username: group.username,
       displayName: group.displayName,
       senderWxids: null,
-      startTime: null,
+      startTime: viewerEntryStartTime,
       endTime: null,
       includeText: true,
       includeImages: true,
@@ -3370,8 +3514,173 @@ function getCurrentViewerDatasetSelection() {
   return viewerGroupSyncOptions.get(viewerSelectedGroup.username) || null;
 }
 
+function setViewerNoteHydrationStage(stage, state = '') {
+  const item = viewerNoteHydrationStages?.querySelector(`[data-note-stage="${stage}"]`);
+  if (!item) return;
+  item.classList.toggle('active', state === 'active');
+  item.classList.toggle('done', state === 'done');
+}
+
+function renderViewerNoteHydration() {
+  const summary = viewerNoteHydrationSummaryData;
+  const missingTasks = viewerNoteHydrationTasks.filter((task) => task.missingCount > 0);
+  if (!viewerGroupLoadConfirmed || !viewerSelectedGroup) {
+    viewerNoteHydrationSummary.textContent = '选择群聊后扫描';
+  } else if (!summary) {
+    viewerNoteHydrationSummary.textContent = '等待任务扫描';
+  } else {
+    viewerNoteHydrationSummary.textContent =
+      `${summary.availableImages}/${summary.expectedImages} 张 · ${summary.pendingNotes} 条待补齐`;
+  }
+
+  setViewerNoteHydrationStage(
+    'local',
+    viewerNoteHydrationActiveStage === 'local'
+      ? 'active'
+      : summary || ['resource', 'done'].includes(viewerNoteHydrationActiveStage) ? 'done' : ''
+  );
+  setViewerNoteHydrationStage(
+    'resource',
+    viewerNoteHydrationActiveStage === 'resource'
+      ? 'active'
+      : viewerNoteHydrationActiveStage === 'done' ? 'done' : ''
+  );
+
+  viewerNoteHydrationList.replaceChildren();
+  if (!viewerGroupLoadConfirmed) {
+    const empty = document.createElement('p');
+    empty.textContent = '尚未读取任务';
+    viewerNoteHydrationList.appendChild(empty);
+  } else if (!missingTasks.length) {
+    const empty = document.createElement('p');
+    empty.textContent = summary?.totalNotes ? '当前群笔记图片已完整' : '当前群没有待补齐笔记';
+    viewerNoteHydrationList.appendChild(empty);
+  } else {
+    const statusLabels = {
+      pending: '待补齐',
+      running: '处理中',
+      paused: '待补齐',
+      needs_manual: '需人工',
+      failed: '失败',
+    };
+    for (const task of missingTasks.slice(0, 6)) {
+      const row = document.createElement('div');
+      row.className = `viewer-note-task ${task.status || 'pending'}`;
+      const title = document.createElement('strong');
+      title.textContent = task.messageText || task.datetime || '无文字笔记';
+      title.title = task.messageText || '';
+      const state = document.createElement('small');
+      state.textContent = `${task.availableCount}/${task.expectedCount} · ${statusLabels[task.status] || '待补齐'}`;
+      if (task.lastError) {
+        state.textContent += ` · ${task.lastError}`;
+        state.title = task.lastError;
+      }
+      row.append(title, state);
+      viewerNoteHydrationList.appendChild(row);
+    }
+    if (missingTasks.length > 6) {
+      const more = document.createElement('p');
+      more.textContent = `另有 ${missingTasks.length - 6} 条待处理`;
+      viewerNoteHydrationList.appendChild(more);
+    }
+  }
+  updateViewerExportState();
+}
+
+async function refreshViewerNoteHydrationTasks() {
+  if (!viewerDatasetDir || !viewerSelectedGroup || !viewerGroupLoadConfirmed) {
+    viewerNoteHydrationTasks = [];
+    viewerNoteHydrationSummaryData = null;
+    viewerNoteHydrationActiveStage = '';
+    renderViewerNoteHydration();
+    return false;
+  }
+  const requestToken = ++viewerNoteHydrationRequestToken;
+  const username = viewerSelectedGroup.username;
+  const selection = getCurrentViewerDatasetSelection();
+  const result = await window.exporter.listNoteHydrationTasks({
+    datasetDir: viewerDatasetDir,
+    username,
+    startTime: selection?.startTime ?? viewerEntryStartTime,
+    endTime: selection?.endTime ?? null,
+  });
+  if (
+    requestToken !== viewerNoteHydrationRequestToken ||
+    username !== viewerSelectedGroup?.username ||
+    !viewerGroupLoadConfirmed
+  ) {
+    return false;
+  }
+  if (!result.ok) {
+    viewerNoteHydrationTasks = [];
+    viewerNoteHydrationSummaryData = null;
+    viewerNoteHydrationActiveStage = '';
+    renderViewerNoteHydration();
+    appendViewerProgressLog(result.error || '笔记补齐任务读取失败', 'warning');
+    return false;
+  }
+  viewerNoteHydrationTasks = result.result.tasks || [];
+  viewerNoteHydrationSummaryData = result.result.summary || null;
+  renderViewerNoteHydration();
+  return true;
+}
+
+async function startViewerNoteHydration() {
+  if (!viewerSelectedGroup || viewerNoteHydrationRunning) return;
+  const missingCount = viewerNoteHydrationTasks.filter((task) => task.missingCount > 0).length;
+  if (!missingCount) return;
+  const token = viewerRequestToken;
+  const username = viewerSelectedGroup.username;
+  viewerNoteHydrationRunning = true;
+  viewerNoteHydrationActiveStage = 'local';
+  renderViewerNoteHydration();
+  setViewerSyncStatus('正在更新当前群笔记图片', 'syncing');
+  const result = await window.exporter.startNoteHydration({
+    accountPath: getViewerAccountPath(),
+    wxDir: getViewerAccountPath(),
+    datasetDir: viewerDatasetDir,
+    selfWxid: currentConversationCache?.selfWxid || null,
+    accountName: viewerAccountName.textContent,
+    username,
+    displayName: viewerSelectedGroup.displayName,
+    selection: getCurrentViewerDatasetSelection(),
+  });
+  viewerNoteHydrationRunning = false;
+  viewerNoteHydrationActiveStage = result.ok ? 'done' : '';
+  if (token !== viewerRequestToken || username !== viewerSelectedGroup?.username) return;
+
+  if (!result.ok) {
+    setViewerSyncStatus(result.error || '笔记图片补齐失败', 'warning');
+    appendViewerProgressLog(result.error || '笔记图片补齐失败', 'warning');
+    await refreshViewerNoteHydrationTasks();
+    return;
+  }
+  viewerNoteHydrationTasks = result.result.tasks || [];
+  viewerNoteHydrationSummaryData = result.result.summary || null;
+  renderViewerNoteHydration();
+  const unresolvedCount = Number(result.result.summary?.pendingNotes) || 0;
+  setViewerSyncStatus(
+    unresolvedCount
+      ? '本次更新后仍有 ' + unresolvedCount + ' 条未补齐，请查看日志'
+      : '当前群笔记图片更新完成',
+    unresolvedCount ? 'warning' : 'ready'
+  );
+  if (viewerSyncImages.checked) {
+    await resolveViewerMessageImages(viewerMessages, token);
+  }
+}
+
 function updateViewerExportState() {
   viewerOpenReviewBtn.disabled = !viewerDatasetDir || viewerDatasetSyncing;
+  const noteReady = Boolean(
+    viewerDatasetDir && viewerSelectedGroup && viewerGroupLoadConfirmed && viewerSyncImages.checked &&
+    (viewerSelectedMembers == null || viewerSelectedMembers.size > 0)
+  );
+  viewerNoteUpdateBtn.disabled =
+    !noteReady ||
+    viewerDatasetSyncing ||
+    viewerNoteHydrationRunning ||
+    !viewerNoteHydrationTasks.some((task) => task.missingCount > 0);
 }
 
 function renderViewerGroups() {
@@ -3467,7 +3776,7 @@ function renderViewerMembers() {
       if (viewerSelectedMembers.size === viewerMembers.length) viewerSelectedMembers = null;
       saveCurrentViewerSyncOption();
       renderViewerMembers();
-      scheduleViewerReload();
+      scheduleViewerReload({ syncDataset: false });
     });
     label.append(input, name, count);
     viewerMemberList.appendChild(label);
@@ -3659,10 +3968,12 @@ async function loadViewerMembers(token) {
   viewerMembers = [];
   viewerSelectedMembers = Array.isArray(savedOption?.senderWxids) ? new Set(savedOption.senderWxids) : null;
   renderViewerMembers();
+  const { start } = getViewerDateRange();
   const result = await window.exporter.listGroupMembers({
     wxDir: getViewerAccountPath(),
     datasetDir: viewerDatasetDir,
     username: viewerSelectedGroup.username,
+    startTime: start,
   });
   if (token !== viewerRequestToken) return;
   if (!result.ok) {
@@ -3762,7 +4073,7 @@ async function loadViewerMessages({ older = false, resolveImages = true } = {}) 
   if (resolveImages && hasImages) void resolveViewerMessageImages(incoming, token);
 }
 
-function scheduleViewerReload() {
+function scheduleViewerReload({ syncDataset = true } = {}) {
   if (!viewerGroupLoadConfirmed) return;
   clearTimeout(viewerFilterTimer);
   viewerFilterTimer = setTimeout(async () => {
@@ -3770,8 +4081,8 @@ function scheduleViewerReload() {
     const token = viewerRequestToken;
     viewerNextCursor = null;
     viewerLoading = false;
-    await loadViewerMessages({ resolveImages: false });
-    if (token !== viewerRequestToken) return;
+    await loadViewerMessages({ resolveImages: !syncDataset });
+    if (token !== viewerRequestToken || !syncDataset) return;
     const selection = getCurrentViewerDatasetSelection();
     if (selection) {
       await queueViewerDatasetSync({ selections: [selection], token, resolvePreviews: true });
@@ -3781,6 +4092,10 @@ function scheduleViewerReload() {
 
 async function selectViewerGroup(group) {
   if (!group || group.username === viewerSelectedGroup?.username && viewerGroupLoadConfirmed) return;
+  if (viewerNoteHydrationRunning) {
+    setViewerSyncStatus('笔记图片正在更新，请等待完成后切换群聊', 'warning');
+    return;
+  }
   const confirmed = await showConfirmDialog({
     title: `读取「${group.displayName}」`,
     message: '确认后才会读取这个群聊的本地解密消息、成员信息和图片。',
@@ -3792,6 +4107,9 @@ async function selectViewerGroup(group) {
   if (!confirmed) return;
   clearViewerProgressLog();
   appendViewerProgressLog(`开始读取「${group.displayName}」的消息和图片`);
+  if (viewerEntryStartTime != null) {
+    appendViewerProgressLog(`起始日期：${new Date(viewerEntryStartTime * 1000).toLocaleDateString('zh-CN')}`);
+  }
   saveCurrentViewerSyncOption();
   viewerSelectedGroup = group;
   viewerMediaFingerprint = null;
@@ -3804,6 +4122,10 @@ async function selectViewerGroup(group) {
   viewerNextCursor = null;
   viewerHasMore = false;
   viewerMembers = [];
+  viewerNoteHydrationRequestToken += 1;
+  viewerNoteHydrationTasks = [];
+  viewerNoteHydrationSummaryData = null;
+  viewerNoteHydrationActiveStage = '';
   restoreViewerSyncOption(group);
   viewerLoading = false;
   viewerConversationTitle.textContent = group.displayName;
@@ -3811,6 +4133,7 @@ async function selectViewerGroup(group) {
   renderViewerGroups();
   renderViewerMembers();
   renderViewerMessages();
+  renderViewerNoteHydration();
   updateViewerExportState();
   setViewerSyncStatus(`正在读取 ${group.displayName}`, 'syncing');
   startViewerAutoSync();
@@ -3823,72 +4146,129 @@ async function selectViewerGroup(group) {
 }
 
 async function syncViewerLatest() {
-  if (!viewerIsOpen || !viewerGroupLoadConfirmed || viewerSyncing) return;
-  const accountPath = getViewerAccountPath();
-  if (!accountPath) return;
-  viewerSyncing = true;
-  viewerRefreshBtn.disabled = true;
-  setViewerSyncStatus('正在检查并读取本机新记录', 'syncing');
-  const result = await window.exporter.scanConversations({
-    wxDir: wxDirInput.value.trim(),
-    accountPath,
-    datasetDir: viewerDatasetDir,
-    selfWxid: null,
-    forceDecrypt: false,
-    loginCapture: false,
-    clientPreflightOk: true,
-  });
-  viewerSyncing = false;
-  viewerRefreshBtn.disabled = false;
-
-  if (!result.ok) {
-    setViewerSyncStatus(result.error || '新记录读取失败', 'warning');
+  if (!viewerIsOpen || !viewerGroupLoadConfirmed || !viewerSelectedGroup) return;
+  if (viewerSyncing) {
+    setViewerSyncStatus('当前群刷新正在进行', 'syncing');
+    appendViewerProgressLog('当前群刷新正在进行，请等待完成');
     return;
   }
+  const accountPath = getViewerAccountPath();
+  if (!accountPath) {
+    setViewerSyncStatus('未找到当前账号目录', 'warning');
+    appendViewerProgressLog('未找到当前账号目录，无法检查新记录', 'warning');
+    return;
+  }
+  const username = viewerSelectedGroup.username;
+  const displayName = viewerSelectedGroup.displayName;
+  const datasetDir = viewerDatasetDir;
+  const previousMediaFingerprint = viewerMediaFingerprint;
+  viewerSyncing = true;
+  viewerRefreshBtn.disabled = true;
+  setViewerSyncStatus(`正在检查 ${displayName} 的新记录`, 'syncing');
+  appendViewerProgressLog(`开始增量刷新「${displayName}」`);
+  try {
+    const result = await window.exporter.refreshCurrentGroup({
+      wxDir: wxDirInput.value.trim(),
+      accountPath,
+      datasetDir,
+      username,
+      displayName,
+      selfWxid: currentConversationCache?.selfWxid || null,
+    });
+    if (
+      !viewerIsOpen ||
+      viewerSelectedGroup?.username !== username ||
+      viewerDatasetDir !== datasetDir
+    ) {
+      return;
+    }
+    if (!result.ok) {
+      const message = result.error || '当前群新记录读取失败';
+      setViewerSyncStatus(message, 'warning');
+      appendViewerProgressLog(message, 'warning');
+      return;
+    }
 
-  conversationItems = result.conversations || conversationItems;
-  if (viewerSelectedGroup) {
-    viewerSelectedGroup = conversationItems.find((item) => item.username === viewerSelectedGroup.username) || null;
-  }
-  await refreshViewerGroupSearchIndex();
-  renderViewerGroups();
-  const status = await window.exporter.getDataStatus({
-    accountPath,
-    datasetDir: viewerDatasetDir,
-    username: viewerSelectedGroup?.username || null,
-  });
-  if (status.ok) {
-    viewerFingerprint = status.fingerprint;
-    viewerMediaFingerprint = status.mediaFingerprint;
-  }
-  if (status.ok && status.needsSync) {
-    setViewerSyncStatus('需要手动重新扫描', 'warning');
-  } else {
-    setViewerSyncStatus(`本机记录已更新 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`, 'ready');
-  }
-  if (viewerSelectedGroup) {
+    const refreshed = result.result || {};
+    const mediaChanged =
+      previousMediaFingerprint != null &&
+      refreshed.mediaFingerprint != null &&
+      previousMediaFingerprint !== refreshed.mediaFingerprint;
+    viewerFingerprint = refreshed.fingerprint || viewerFingerprint;
+    viewerMediaFingerprint = refreshed.mediaFingerprint || viewerMediaFingerprint;
+    if (refreshed.group?.messageCount != null) {
+      const item = conversationItems.find((entry) => entry.username === username);
+      if (item) item.messageCount = refreshed.group.messageCount;
+      if (viewerSelectedGroup) viewerSelectedGroup.messageCount = refreshed.group.messageCount;
+      renderViewerGroups();
+    }
+    if (refreshed.needsSync) {
+      const message = refreshed.warning || '新记录暂未读取，继续使用已有群聊数据';
+      setViewerSyncStatus(message, 'warning');
+      appendViewerProgressLog(message, 'warning');
+      return;
+    }
+
     viewerRequestToken += 1;
     const token = viewerRequestToken;
     await Promise.all([loadViewerMessages({ resolveImages: false }), loadViewerMembers(token)]);
     if (token === viewerRequestToken) {
       const selection = getCurrentViewerDatasetSelection();
       if (selection) {
-        await queueViewerDatasetSync({ selections: [selection], force: true, token, resolvePreviews: true });
+        await queueViewerDatasetSync({
+          selections: [selection],
+          force: mediaChanged,
+          token,
+          resolvePreviews: true,
+        });
       }
     }
+    if (token !== viewerRequestToken) return;
+    const addedMessages = Number(refreshed.group?.addedMessages) || 0;
+    const message = addedMessages > 0
+      ? `当前群刷新完成，新增 ${addedMessages} 条消息`
+      : mediaChanged
+        ? '当前群消息无变化，已检查本地图片更新'
+        : '当前群没有发现新记录';
+    setViewerSyncStatus(message, 'ready');
+    appendViewerProgressLog(message);
+  } catch (err) {
+    const message = err?.message || '当前群刷新失败';
+    setViewerSyncStatus(message, 'warning');
+    appendViewerProgressLog(message, 'warning');
+  } finally {
+    viewerSyncing = false;
+    viewerRefreshBtn.disabled = false;
   }
 }
 
 async function checkViewerDataStatus() {
-  if (!viewerIsOpen || !viewerGroupLoadConfirmed || viewerSyncing || viewerDatasetSyncing) return;
+  if (
+    !viewerIsOpen ||
+    !viewerGroupLoadConfirmed ||
+    viewerSyncing ||
+    viewerDatasetSyncing ||
+    viewerNoteHydrationRunning ||
+    viewerStatusChecking
+  ) {
+    return;
+  }
   const accountPath = getViewerAccountPath();
   const username = viewerSelectedGroup?.username || null;
   if (!accountPath || !username) return;
-  const status = await window.exporter.getDataStatus({
-    accountPath,
-    datasetDir: viewerDatasetDir,
-    username,
-  });
+  viewerStatusChecking = true;
+  let status;
+  try {
+    status = await window.exporter.getDataStatus({
+      accountPath,
+      datasetDir: viewerDatasetDir,
+      username,
+    });
+  } catch (err) {
+    status = { ok: false, error: err.message };
+  } finally {
+    viewerStatusChecking = false;
+  }
   if (!status.ok) {
     setViewerSyncStatus(status.error || '无法检查数据', 'warning');
     return;
@@ -3931,7 +4311,6 @@ async function checkViewerDataStatus() {
 
 function startViewerAutoSync() {
   clearInterval(viewerSyncTimer);
-  if (viewerAutoSync.checked) void checkViewerDataStatus();
   viewerSyncTimer = setInterval(() => {
     if (viewerAutoSync.checked) void checkViewerDataStatus();
   }, VIEWER_SYNC_INTERVAL_MS);
@@ -3944,13 +4323,28 @@ async function openRecordViewer() {
     return;
   }
   const accountKey = getViewerAccountKey();
+  const entryStartValue = getRecordsStartDateValue();
+  const entryStartTime = recordsStartTimeToUnix(entryStartValue);
+  if (entryStartValue && entryStartTime == null) {
+    validateRecordsStartDate();
+    await showFriendlyError('起始日期无效', '请重新选择消息与图片的起始日期。');
+    focusInvalidRecordsStartDatePart();
+    return;
+  }
+  saveRecordsStartTimeForAccount(accountKey);
   const datasetDir = await ensureViewerDatasetDirForAccount(accountKey, { prompt: true });
   if (!datasetDir) {
     await showFriendlyError('尚未选择账号数据目录', '请先为当前账号选择数据存放位置，再进入群聊记录。');
     return;
   }
-  if (viewerActiveAccountKey && viewerActiveAccountKey !== accountKey) viewerGroupSyncOptions.clear();
+  if (
+    (viewerActiveAccountKey && viewerActiveAccountKey !== accountKey) ||
+    viewerEntryStartTime !== entryStartTime
+  ) {
+    viewerGroupSyncOptions.clear();
+  }
   viewerActiveAccountKey = accountKey;
+  viewerEntryStartTime = entryStartTime;
   viewerRequestToken += 1;
   viewerSelectedGroup = null;
   viewerGroupLoadConfirmed = false;
@@ -3959,6 +4353,11 @@ async function openRecordViewer() {
   viewerMembers = [];
   viewerSelectedMembers = null;
   viewerMessages = [];
+  viewerNoteHydrationRequestToken += 1;
+  viewerNoteHydrationTasks = [];
+  viewerNoteHydrationSummaryData = null;
+  viewerNoteHydrationActiveStage = '';
+  viewerNoteHydrationRunning = false;
   viewerNextCursor = null;
   viewerHasMore = false;
   viewerLoading = false;
@@ -3976,11 +4375,21 @@ async function openRecordViewer() {
   renderViewerGroups();
   renderViewerMembers();
   renderViewerMessages();
+  renderViewerNoteHydration();
   updateViewerExportState();
 }
 
 function closeRecordViewer() {
+  if (viewerNoteHydrationRunning) {
+    setViewerSyncStatus('笔记图片正在更新，请等待完成后关闭', 'warning');
+    return;
+  }
   saveCurrentViewerSyncOption();
+  viewerNoteHydrationRunning = false;
+  viewerNoteHydrationRequestToken += 1;
+  viewerNoteHydrationTasks = [];
+  viewerNoteHydrationSummaryData = null;
+  viewerNoteHydrationActiveStage = '';
   viewerIsOpen = false;
   viewerRequestToken += 1;
   viewerSelectedGroup = null;
@@ -3996,7 +4405,10 @@ function closeRecordViewer() {
 
 function setViewerDatasetDir(dirPath, { persist = true } = {}) {
   const nextDir = dirPath || '';
-  if (viewerDatasetDir !== nextDir) viewerDatasetSyncSignatures.clear();
+  if (viewerDatasetDir !== nextDir) {
+    viewerDatasetSyncSignatures.clear();
+    invalidateClassificationReviewCache();
+  }
   viewerDatasetDir = nextDir;
   viewerDatasetPath.textContent = viewerDatasetDir || '此账号尚未选择目录';
   viewerDatasetPath.title = viewerDatasetDir;
@@ -4022,18 +4434,18 @@ async function ensureJewelryTaxonomy() {
   return true;
 }
 
-async function ensureJewelryCodexConsent() {
-  if (localStorage.getItem(JEWELRY_CONSENT_KEY) === 'accepted') return true;
-  const confirmed = await showConfirmDialog({
+async function ensureJewelryCodexConsent(preparation) {
+  const targetCount = Number(preparation?.targetCount) || 0;
+  const exampleCount = Number(preparation?.exampleCount) || 0;
+  const batchCount = Number(preparation?.batchCount) || 0;
+  return showConfirmDialog({
     title: '提交 Codex 图片识别',
-    message: '所选图片和聊天上下文将提交给 Codex 进行分类。',
-    detail: '自动保存不会提交；仅在手动点击“识别所选”后使用 Codex 额度。',
+    message: '本次将分类 ' + targetCount + ' 张目标图，并使用 ' + exampleCount + ' 张学习示例。',
+    detail: '共 ' + batchCount + ' 个批次；每批最多 ' + (preparation?.attachmentLimit || 10) + ' 张附件。本次授权不会被记住。',
     tone: 'warn',
-    confirmLabel: '提交所选图片',
+    confirmLabel: '提交 ' + targetCount + ' 张图片',
     cancelLabel: '取消',
   });
-  if (confirmed) localStorage.setItem(JEWELRY_CONSENT_KEY, 'accepted');
-  return confirmed;
 }
 
 function getViewerDatasetSyncSignature(selection, context = null) {
@@ -4094,10 +4506,10 @@ async function syncViewerDataset({
     await showFriendlyError('未选择保存内容', '每个群聊至少需要选择文本消息或图片内容。');
     return false;
   }
-  if (selections.some((item) => Array.isArray(item.senderWxids) && item.senderWxids.length === 0)) {
-    await showFriendlyError('未选择群成员', '每个群聊至少需要选择一位成员，或勾选全部成员。');
-    return false;
-  }
+  selections = selections.filter((item) =>
+    !Array.isArray(item.senderWxids) || item.senderWxids.length > 0
+  );
+  if (!selections.length) return false;
   if (selections.some((item) => item.startTime && item.endTime && item.startTime > item.endTime)) {
     await showFriendlyError('日期范围无效', '开始日期不能晚于结束日期。');
     return false;
@@ -4109,6 +4521,7 @@ async function syncViewerDataset({
     if (resolvePreviews && viewerSyncImages.checked && token === viewerRequestToken && isActiveContext()) {
       await resolveViewerMessageImages(viewerMessages, token);
     }
+    if (isActiveContext()) await refreshViewerNoteHydrationTasks();
     return true;
   }
   viewerDatasetSyncing = true;
@@ -4141,6 +4554,9 @@ async function syncViewerDataset({
     return false;
   }
   const synced = result.result;
+  if (viewerClassificationLoadedDatasetDir === synced.datasetDir) {
+    invalidateClassificationReviewCache();
+  }
   const activeAtCompletion = isActiveContext();
   if (activeAtCompletion) {
     syncContext.datasetDir = synced.datasetDir;
@@ -4160,6 +4576,7 @@ async function syncViewerDataset({
   if (resolvePreviews && viewerSyncImages.checked && token === viewerRequestToken && isActiveContext()) {
     await resolveViewerMessageImages(viewerMessages, token, { datasetDir: synced.datasetDir });
   }
+  await refreshViewerNoteHydrationTasks();
   return true;
 }
 
@@ -4197,10 +4614,22 @@ function renderBatchProcessOptions() {
 
 function getClassificationFilters() {
   const selectedState = viewerClassificationState.value;
+  const codexResultStates = selectedState === 'codex_results'
+    ? ['needs_review', 'classified', 'not_jewelry']
+    : null;
+  const unrecognizedStates = selectedState === 'unrecognized'
+    ? ['pending', 'failed']
+    : null;
+  const day = viewerClassificationDay.value || null;
   return {
     classificationEligible: true,
     pathStatus: selectedState === 'missing' ? 'missing' : 'available',
-    state: selectedState === 'missing' ? null : selectedState || null,
+    state: ['missing', 'codex_results', 'unrecognized'].includes(selectedState) ? null : selectedState || null,
+    states: codexResultStates || unrecognizedStates,
+    day,
+    dateFrom: day ? null : viewerClassificationDateFrom.value || null,
+    dateTo: day ? null : viewerClassificationDateTo.value || null,
+    includeUnknownDate: false,
     categoryId: viewerClassificationCategory.value || null,
     processId: viewerClassificationProcess.value || null,
     conversationId: viewerClassificationGroup.value || null,
@@ -4209,11 +4638,91 @@ function getClassificationFilters() {
   };
 }
 
+const CLASSIFICATION_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function classificationDateValue(date) {
+  const parts = Object.fromEntries(
+    CLASSIFICATION_DAY_FORMATTER.formatToParts(date)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  );
+  return [parts.year, parts.month, parts.day].join('-');
+}
+
+function shiftClassificationDay(day, offset) {
+  const date = new Date(day + 'T12:00:00+08:00');
+  date.setUTCDate(date.getUTCDate() + offset);
+  return classificationDateValue(date);
+}
+
+function latestClassificationDay() {
+  return Object.keys(viewerClassificationDayCounts)
+    .filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day))
+    .sort()
+    .at(-1) || '';
+}
+
+function updateClassificationRangeButtons() {
+  for (const button of document.querySelectorAll('[data-classification-range]')) {
+    button.classList.toggle('active', button.dataset.classificationRange === viewerClassificationRangeMode);
+  }
+}
+
+function setClassificationDateRange(mode, { reload = true } = {}) {
+  const today = classificationDateValue(new Date());
+  viewerClassificationRangeMode = mode;
+  viewerClassificationDay.value = '';
+  if (mode === 'latest') {
+    const latest = latestClassificationDay();
+    viewerClassificationDay.value = latest;
+    viewerClassificationDateFrom.value = '';
+    viewerClassificationDateTo.value = '';
+  } else if (mode === 'today') {
+    viewerClassificationDateFrom.value = today;
+    viewerClassificationDateTo.value = today;
+  } else if (mode === 'last7') {
+    viewerClassificationDateFrom.value = shiftClassificationDay(today, -6);
+    viewerClassificationDateTo.value = today;
+  } else if (mode === 'all') {
+    viewerClassificationDateFrom.value = '';
+    viewerClassificationDateTo.value = '';
+  }
+  updateClassificationRangeButtons();
+  if (reload) scheduleClassificationReload();
+}
+
+function classificationDayInCurrentRange(day) {
+  const filters = getClassificationFilters();
+  if (filters.day) return day === filters.day;
+  if (!filters.dateFrom && !filters.dateTo) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  return (!filters.dateFrom || day >= filters.dateFrom) && (!filters.dateTo || day <= filters.dateTo);
+}
 function populateClassificationFilters(result) {
+  viewerClassificationConversations = result.manifest?.conversations || [];
+  replaceSelectOptions(
+    viewerClassificationDay,
+    Object.entries(result.dayCounts || {})
+      .sort(([left], [right]) => right.localeCompare(left))
+      .map(([day, count]) => ({
+        id: day,
+        name: `${['unknown', 'unknown-date'].includes(day) ? '未知日期' : day} · ${count} 张`,
+      })),
+    '按日期范围'
+  );
+  if (!viewerClassificationDateInitialized) {
+    viewerClassificationDateInitialized = true;
+    setClassificationDateRange('latest', { reload: false });
+  }
   replaceSelectOptions(
     viewerClassificationGroup,
     result.manifest?.conversations || [],
-    '全部群聊',
+    '全部授权群聊',
     'conversationId',
     'displayName'
   );
@@ -4233,8 +4742,10 @@ function classificationStateLabel(state) {
   return {
     pending: '等待识别',
     classified: '已分类',
+    not_jewelry: '非珠宝',
     needs_review: '待人工复核',
     failed: '识别失败',
+    skipped: '已跳过',
   }[state] || state;
 }
 
@@ -4255,6 +4766,109 @@ function createClassificationChoices(items, type, name, selectedIds) {
   return grid;
 }
 
+function closeSimilarityResults() {
+  viewerSimilarityRequestToken += 1;
+  viewerSimilarityPanel.classList.add('hidden');
+}
+
+function renderSimilarityResults(result) {
+  viewerSimilarityList.replaceChildren();
+  const items = result?.results || [];
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'viewer-empty';
+    empty.textContent = '当前范围没有达到相似度条件的图片';
+    viewerSimilarityList.appendChild(empty);
+    return;
+  }
+  for (const item of items) {
+    const card = document.createElement('article');
+    card.className = 'similarity-item';
+    if (item.previewUrl) {
+      const image = document.createElement('img');
+      image.src = item.previewUrl;
+      image.alt = '相似图片 ' + item.imageId;
+      image.loading = 'lazy';
+      image.addEventListener('click', () => openViewerLightbox(item.previewUrl));
+      card.appendChild(image);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'classification-image-placeholder';
+      placeholder.textContent = '图片不可用';
+      card.appendChild(placeholder);
+    }
+    const meta = document.createElement('div');
+    meta.className = 'similarity-item-meta';
+    const title = document.createElement('strong');
+    title.textContent = '相似度 ' + Math.max(0, item.score * 100).toFixed(1) + '%';
+    const category = item.current?.category?.name || '未分类';
+    const processes = (item.current?.processes || []).map((entry) => entry.name || entry.id).join('、') || '未确定工艺';
+    const group = item.conversation?.displayNameSnapshot || item.conversation?.username || '-';
+    const details = [
+      item.day || '未知日期',
+      group,
+      category + ' · ' + processes,
+      'GUID ' + item.imageId,
+    ];
+    meta.appendChild(title);
+    for (const value of details) {
+      const line = document.createElement('span');
+      line.textContent = value;
+      meta.appendChild(line);
+    }
+    card.appendChild(meta);
+    viewerSimilarityList.appendChild(card);
+  }
+}
+
+async function runSimilaritySearch() {
+  if (!viewerSimilarityQuery || !viewerDatasetDir) return;
+  const requestToken = ++viewerSimilarityRequestToken;
+  viewerSimilarityPanel.classList.remove('hidden');
+  viewerSimilarityList.replaceChildren();
+  const loading = document.createElement('div');
+  loading.className = 'viewer-empty';
+  loading.textContent = '正在建立本地向量并检索...';
+  viewerSimilarityList.appendChild(loading);
+  viewerSimilaritySummary.textContent = '正在使用本地 CLIP 检索';
+  const currentFilters = getClassificationFilters();
+  const selectedConversation = viewerClassificationConversations.find((entry) =>
+    entry.conversationId === viewerClassificationGroup.value
+  );
+  const allHistory = viewerSimilarityAllHistory.checked;
+  const result = await window.exporter.searchJewelrySimilar({
+    sources: [{
+      datasetDir: viewerDatasetDir,
+      conversationUsernames: selectedConversation ? [selectedConversation.username] : null,
+    }],
+    imageId: viewerSimilarityQuery.imageId || null,
+    imagePath: viewerSimilarityQuery.imagePath || null,
+    day: allHistory ? null : currentFilters.day,
+    dateFrom: allHistory ? null : currentFilters.dateFrom,
+    dateTo: allHistory ? null : currentFilters.dateTo,
+    topK: 30,
+    minScore: 0,
+  });
+  if (requestToken !== viewerSimilarityRequestToken) return;
+  if (!result.ok) {
+    viewerSimilaritySummary.textContent = '检索失败';
+    await showFriendlyError('相似图片检索失败', result.error || '无法完成本地图片检索');
+    return;
+  }
+  viewerSimilaritySummary.textContent =
+    '找到 ' + (result.result?.results?.length || 0) + ' 张 · ' + result.result.modelVersion;
+  renderSimilarityResults(result.result);
+}
+
+async function chooseSimilarityQueryImage() {
+  const imagePath = await window.exporter.pickFile({
+    title: '选择珠宝查询图片',
+    filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'webp', 'avif', 'tif', 'tiff'] }],
+  });
+  if (!imagePath) return;
+  viewerSimilarityQuery = { imagePath };
+  await runSimilaritySearch();
+}
 function renderClassificationCard(item) {
   const annotation = item.annotation || {};
   const card = document.createElement('article');
@@ -4304,14 +4918,97 @@ function renderClassificationCard(item) {
 
   const form = document.createElement('div');
   form.className = 'classification-card-form';
+  const record = item.classificationRecord || {};
+  const trace = record.source || {};
+  const sourceMessage = trace.message || {};
   const meta = document.createElement('div');
   meta.className = 'classification-card-meta';
   const source = document.createElement('span');
-  source.textContent = `${item.conversationName} · ${item.senderName || '未知发送人'}`;
+  source.textContent = item.conversationName + ' - ' + (item.senderName || '未知发送人');
   const time = document.createElement('span');
-  time.textContent = item.datetime || '';
+  time.textContent = item.datetime || sourceMessage.datetime || '';
   meta.append(source, time);
   form.appendChild(meta);
+
+  const resultSummary = document.createElement('section');
+  resultSummary.className = 'classification-result-summary';
+  resultSummary.setAttribute('aria-label', '当前识别结果');
+  const resultHeading = document.createElement('div');
+  resultHeading.className = 'classification-result-heading';
+  const resultTitle = document.createElement('h3');
+  resultTitle.textContent = '当前识别结果';
+  const resultSource = document.createElement('span');
+  resultSource.textContent = annotation.source === 'manual'
+    ? '人工确认'
+    : annotation.source === 'codex' ? 'Codex 识别' : '尚未识别';
+  resultHeading.append(resultTitle, resultSource);
+  const resultGrid = document.createElement('div');
+  resultGrid.className = 'classification-result-grid';
+  const categoryName = jewelryProductCategories.find((item) => item.id === annotation.productCategory?.id)?.name;
+  const processNames = (annotation.processes?.ids || []).map((processId) =>
+    jewelryProcesses.find((item) => item.id === processId)?.name || processId
+  );
+  const notJewelry = annotation.jewelryDecision === 'not_jewelry';
+  const resultRows = [
+    ['判断', annotation.jewelryDecision === 'jewelry' ? '珠宝' : notJewelry ? '非珠宝' : '待确认'],
+    ['品类', notJewelry ? '不适用' : categoryName || '待确认'],
+    ['工艺', notJewelry
+      ? '不适用'
+      : processNames.length ? processNames.join('、')
+        : annotation.processes?.decision === 'none' ? '确认无匹配工艺' : '待确认'],
+  ];
+  for (const [label, value] of resultRows) {
+    const resultItem = document.createElement('div');
+    const resultLabel = document.createElement('span');
+    const resultValue = document.createElement('strong');
+    resultLabel.textContent = label;
+    resultValue.textContent = value;
+    resultItem.append(resultLabel, resultValue);
+    resultGrid.appendChild(resultItem);
+  }
+  resultSummary.append(resultHeading, resultGrid);
+  form.appendChild(resultSummary);
+
+  const traceGrid = document.createElement('div');
+  traceGrid.className = 'classification-trace';
+  const accountText = [trace.account?.displayName, trace.account?.wxid].filter(Boolean).join(' / ') || '-';
+  const conversationText = [trace.conversation?.displayNameSnapshot, trace.conversation?.username].filter(Boolean).join(' / ') || '-';
+  const senderText = [sourceMessage.senderName, sourceMessage.senderWxid].filter(Boolean).join(' / ') +
+    (sourceMessage.isSelf ? ' - 本人发送' : ' - 他人发送');
+  const sourceIdText = [sourceMessage.sourceLocalId, sourceMessage.sourceServerId].filter((value) => value != null).join(' / ') || '-';
+  const traceRows = [
+    ['GUID', item.imageId],
+    ['源图片 ID', item.sourceImageId || '-'],
+    ['账号', accountText],
+    ['群聊', conversationText],
+    ['发送人', senderText],
+    ['消息时间', sourceMessage.datetime || sourceMessage.createTime || '-'],
+    ['消息 ID', sourceMessage.messageId || item.messageId || '-'],
+    ['本地 / 服务器 ID', sourceIdText],
+  ];
+  for (const [label, value] of traceRows) {
+    const row = document.createElement('p');
+    const key = document.createElement('strong');
+    const text = document.createElement('span');
+    key.textContent = label;
+    text.textContent = String(value);
+    row.append(key, text);
+    traceGrid.appendChild(row);
+  }
+  form.appendChild(traceGrid);
+
+  const decisionField = document.createElement('div');
+  decisionField.className = 'classification-field';
+  const decisionLabel = document.createElement('strong');
+  decisionLabel.textContent = '判断*';
+  const decisionChoices = createClassificationChoices(
+    [{ id: 'jewelry', name: '珠宝' }, { id: 'not_jewelry', name: '非珠宝' }],
+    'radio',
+    'jewelry-decision-' + item.imageId,
+    new Set(['jewelry', 'not_jewelry'].includes(annotation.jewelryDecision) ? [annotation.jewelryDecision] : [])
+  );
+  decisionField.append(decisionLabel, decisionChoices);
+  form.appendChild(decisionField);
 
   const textField = document.createElement('div');
   textField.className = 'classification-field';
@@ -4368,18 +5065,40 @@ function renderClassificationCard(item) {
   });
   processField.append(processLabel, processChoices);
   form.appendChild(processField);
+  const updateDetailVisibility = () => {
+    const jewelryDecision = decisionChoices.querySelector('input:checked')?.value || null;
+    const hidden = jewelryDecision !== 'jewelry';
+    categoryField.classList.toggle('hidden', hidden);
+    processField.classList.toggle('hidden', hidden);
+  };
+  for (const input of decisionChoices.querySelectorAll('input')) {
+    input.addEventListener('change', updateDetailVisibility);
+  }
+  updateDetailVisibility();
 
-  if (item.context?.length) {
+  const context = record.context || {};
+  {
     const contextDetails = document.createElement('details');
     const summary = document.createElement('summary');
-    summary.textContent = `分类上下文（${item.context.length} 条）`;
+    summary.textContent = '前后文 ' + (context.beforeCount || 0) + ' + ' + (context.afterCount || 0) +
+      (context.complete ? '' : ' - 不完整');
     contextDetails.appendChild(summary);
-    for (const message of item.context) {
-      const line = document.createElement('p');
-      line.className = 'classification-reason';
-      line.textContent = `${message.senderName}：${message.text}`;
-      contextDetails.appendChild(line);
-    }
+    const appendContext = (label, messages) => {
+      const heading = document.createElement('strong');
+      heading.className = 'classification-context-heading';
+      heading.textContent = label;
+      contextDetails.appendChild(heading);
+      for (const message of messages || []) {
+        const line = document.createElement('p');
+        line.className = 'classification-context-line';
+        const sender = [message.senderName, message.senderWxid].filter(Boolean).join(' / ');
+        line.textContent = '距图片 ' + message.distance + '条 - ' + sender + ' - ' +
+          (message.datetime || message.createTime || '-') + ' - ' + (message.messageId || '-') + '\n' + message.text;
+        contextDetails.appendChild(line);
+      }
+    };
+    appendContext('前文（远到近）', context.before);
+    appendContext('后文（近到远）', context.after);
     form.appendChild(contextDetails);
   }
   if (annotation.reason) {
@@ -4389,22 +5108,49 @@ function renderClassificationCard(item) {
     form.appendChild(reason);
   }
 
+  const similar = document.createElement('button');
+  similar.type = 'button';
+  similar.className = 'btn secondary classification-card-save';
+  similar.textContent = '查找相似';
+  similar.addEventListener('click', () => {
+    viewerSimilarityQuery = {
+      imageId: item.imageId,
+      conversationUsername: item.conversationUsername,
+    };
+    void runSimilaritySearch();
+  });
+  form.appendChild(similar);
+
   const save = document.createElement('button');
   save.type = 'button';
   save.className = 'btn primary classification-card-save';
-  save.textContent = '确认分类';
+  save.textContent = annotation.state === 'needs_review'
+    ? '完成人工复核'
+    : annotation.manualLocked ? '保存人工修订' : '确认或修订结果';
   save.addEventListener('click', async () => {
-    const categoryId = categoryChoices.querySelector('input:checked')?.value || null;
-    const processIds = [...processChoices.querySelectorAll('input[type="checkbox"]:checked')]
-      .filter((input) => input !== noProcessInput)
-      .map((input) => input.value);
+    const jewelryDecision = decisionChoices.querySelector('input:checked')?.value || null;
+    if (!jewelryDecision) {
+      await showFriendlyError('请选择图片判断', '请确认这张图片是珠宝还是非珠宝。');
+      return;
+    }
+    const categoryId = jewelryDecision === 'jewelry'
+      ? categoryChoices.querySelector('input:checked')?.value || null
+      : null;
+    const processIds = jewelryDecision === 'jewelry'
+      ? [...processChoices.querySelectorAll('input[type="checkbox"]:checked')]
+        .filter((input) => input !== noProcessInput)
+        .map((input) => input.value)
+      : [];
     save.disabled = true;
     const result = await window.exporter.saveJewelryClassification({
       datasetDir: viewerDatasetDir,
       imageId: item.imageId,
+      jewelryDecision,
       categoryId,
       processIds,
-      processDecision: noProcessInput.checked ? 'none' : 'selected',
+      processDecision: jewelryDecision === 'jewelry'
+        ? (noProcessInput.checked ? 'none' : 'selected')
+        : 'not_applicable',
       recognizedText: recognizedText.value,
     });
     save.disabled = false;
@@ -4413,6 +5159,7 @@ function renderClassificationCard(item) {
       return;
     }
     viewerSelectedClassificationImages.delete(item.imageId);
+    invalidateClassificationReviewCache();
     await loadClassificationReview();
   });
   form.appendChild(save);
@@ -4421,55 +5168,240 @@ function renderClassificationCard(item) {
 }
 
 function renderClassificationItems() {
+  viewerClassificationObserver?.disconnect();
   viewerClassificationList.replaceChildren();
-  if (!viewerClassificationItems.length) {
+  const selectedDay = viewerClassificationDay.value;
+  const dayEntries = Object.entries(viewerClassificationDayCounts)
+    .filter(([day]) => classificationDayInCurrentRange(day))
+    .sort(([left], [right]) => right.localeCompare(left));
+  if (!dayEntries.length) {
     const empty = document.createElement('div');
     empty.className = 'viewer-empty';
     empty.textContent = '当前筛选条件下没有图片';
     viewerClassificationList.appendChild(empty);
     return;
   }
-  for (const item of viewerClassificationItems) viewerClassificationList.appendChild(renderClassificationCard(item));
+  viewerClassificationObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) void loadClassificationDay(entry.target.dataset.day);
+    }
+  }, { root: viewerClassificationList, rootMargin: '600px 0px' });
+  for (const [day, total] of dayEntries) {
+    const state = {
+      items: [],
+      total: Number(total) || 0,
+      hasMore: true,
+      loading: false,
+      error: null,
+      renderedCount: 0,
+    };
+    viewerClassificationDayLoads.set(day, state);
+    const group = document.createElement('details');
+    group.className = 'classification-day-group';
+    group.open = viewerExpandedClassificationDays.has(day);
+    const heading = document.createElement('summary');
+    heading.className = 'classification-day-heading';
+    const dayLabel = document.createElement('time');
+    const unknownDay = ['unknown', 'unknown-date'].includes(day);
+    dayLabel.textContent = unknownDay ? '未知日期' : day;
+    if (!unknownDay) dayLabel.dateTime = day;
+    const count = document.createElement('span');
+    count.textContent = `${state.total} 张`;
+    const selectDay = document.createElement('button');
+    selectDay.type = 'button';
+    selectDay.className = 'classification-day-select';
+    selectDay.textContent = '全选当天';
+    selectDay.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void selectClassificationImageIds({ ...getClassificationFilters(), day }, selectDay);
+    });
+    const classifyDay = document.createElement('button');
+    classifyDay.type = 'button';
+    classifyDay.className = 'classification-day-select';
+    classifyDay.textContent = '识别当天';
+    classifyDay.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void classifyPendingImages({
+        ...getClassificationFilters(),
+        day,
+        dateFrom: null,
+        dateTo: null,
+      });
+    });
+    heading.append(dayLabel, count, selectDay, classifyDay);
+    group.appendChild(heading);
+    const dayItems = document.createElement('div');
+    dayItems.className = 'classification-day-items';
+    group.appendChild(dayItems);
+    const sentinel = document.createElement('div');
+    sentinel.className = 'classification-load-sentinel';
+    sentinel.dataset.day = day;
+    sentinel.setAttribute('role', 'status');
+    group.appendChild(sentinel);
+    Object.assign(state, { group, count, dayItems, sentinel });
+    group.addEventListener('toggle', () => {
+      if (group.open) {
+        viewerExpandedClassificationDays.add(day);
+        void loadClassificationDay(day);
+      } else {
+        viewerExpandedClassificationDays.delete(day);
+        viewerClassificationObserver?.unobserve(sentinel);
+      }
+    });
+    viewerClassificationList.appendChild(group);
+    if (group.open) void loadClassificationDay(day);
+  }
+}
+
+function renderClassificationDayState(day) {
+  const state = viewerClassificationDayLoads.get(day);
+  if (!state) return;
+  for (const item of state.items.slice(state.renderedCount)) {
+    state.dayItems.appendChild(renderClassificationCard(item));
+  }
+  state.renderedCount = state.items.length;
+  state.count.textContent = state.items.length && state.hasMore
+    ? `${state.items.length} / ${state.total} 张`
+    : `${state.total} 张`;
+  state.sentinel.textContent = state.error || (state.loading ? '正在加载...' : '');
+  viewerClassificationObserver?.unobserve(state.sentinel);
+  if (state.group.open && state.hasMore && !state.loading && !state.error) {
+    viewerClassificationObserver?.observe(state.sentinel);
+  }
+}
+
+async function loadClassificationDay(day) {
+  const state = viewerClassificationDayLoads.get(day);
+  if (!state || state.loading || !state.hasMore) return;
+  state.loading = true;
+  state.error = null;
+  renderClassificationDayState(day);
+  const loadVersion = viewerClassificationLoadVersion;
+  const result = await window.exporter.listJewelryImages({
+    datasetDir: viewerDatasetDir,
+    filters: { ...getClassificationFilters(), day },
+    offset: state.items.length,
+    limit: viewerClassificationLimit,
+  });
+  if (loadVersion !== viewerClassificationLoadVersion) return;
+  state.loading = false;
+  if (!result.ok) {
+    state.error = result.error || '加载失败';
+    renderClassificationDayState(day);
+    return;
+  }
+  const knownImageIds = new Set(state.items.map((item) => item.imageId));
+  for (const item of result.result.items || []) {
+    if (!knownImageIds.has(item.imageId)) state.items.push(item);
+  }
+  state.total = Number(result.result.total) || 0;
+  state.hasMore = Boolean(result.result.hasMore);
+  renderClassificationDayState(day);
+  updateClassificationSummary();
+}
+
+function syncClassificationSelectionControls() {
+  for (const input of viewerClassificationList.querySelectorAll('.classification-card-select')) {
+    input.checked = viewerSelectedClassificationImages.has(input.closest('.classification-card')?.dataset.imageId);
+  }
+  updateClassificationSummary();
+}
+
+async function selectClassificationImageIds(filters, button) {
+  const originalLabel = button.textContent;
+  const loadVersion = viewerClassificationLoadVersion;
+  button.disabled = true;
+  button.textContent = '选择中...';
+  let offset = 0;
+  let matched = 0;
+  try {
+    while (true) {
+      const result = await window.exporter.listJewelryImages({
+        datasetDir: viewerDatasetDir,
+        filters,
+        offset,
+        limit: 5000,
+        idsOnly: true,
+      });
+      if (loadVersion !== viewerClassificationLoadVersion) return;
+      if (!result.ok) {
+        await showFriendlyError('选择图片失败', result.error || '无法读取当前图片范围');
+        return;
+      }
+      const items = result.result.items || [];
+      for (const item of items) {
+        viewerSelectedClassificationImages.add(item.imageId);
+      }
+      matched += items.length;
+      if (!result.result.hasMore || !items.length) break;
+      offset += items.length;
+    }
+    if (!matched) {
+      await showFriendlyError('没有可选图片', '当前范围没有可用于识别的图片。');
+      return;
+    }
+    syncClassificationSelectionControls();
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
 }
 
 function updateClassificationSummary() {
-  const first = viewerClassificationTotal ? viewerClassificationOffset + 1 : 0;
-  const last = Math.min(viewerClassificationOffset + viewerClassificationItems.length, viewerClassificationTotal);
-  viewerClassificationSummary.textContent = `${viewerClassificationTotal} 张图片 · 当前 ${first}-${last} · ${viewerSelectedClassificationImages.size} 张已选择`;
+  const loaded = [...viewerClassificationDayLoads.values()]
+    .reduce((count, state) => count + state.items.length, 0);
+  const needsReview = Number(viewerClassificationStateCounts.needs_review) || 0;
+  const classified = Number(viewerClassificationStateCounts.classified) || 0;
+  const notJewelry = Number(viewerClassificationStateCounts.not_jewelry) || 0;
+  viewerClassificationSummary.textContent =
+    `${viewerClassificationTotal} 张图片 · 已加载 ${loaded} · 待复核 ${needsReview} · 已分类 ${classified} · 非珠宝 ${notJewelry} · ${viewerSelectedClassificationImages.size} 张已选择`;
 }
 
-function updateClassificationPagination() {
-  const page = viewerClassificationTotal ? Math.floor(viewerClassificationOffset / viewerClassificationLimit) + 1 : 1;
-  const pageCount = Math.max(1, Math.ceil(viewerClassificationTotal / viewerClassificationLimit));
-  viewerClassificationPageInfo.textContent = `第 ${page} / ${pageCount} 页`;
-  viewerClassificationPrevBtn.disabled = viewerClassificationOffset <= 0;
-  viewerClassificationNextBtn.disabled = viewerClassificationOffset + viewerClassificationLimit >= viewerClassificationTotal;
+function invalidateClassificationReviewCache() {
+  viewerClassificationLoadedDatasetDir = '';
+  viewerClassificationLoadedFilterSignature = '';
 }
 
-async function loadClassificationReview({ resetPage = false } = {}) {
+async function loadClassificationReview({ resetExpanded = false } = {}) {
   if (!viewerDatasetDir || !(await ensureJewelryTaxonomy())) return;
-  if (resetPage) viewerClassificationOffset = 0;
   const requestToken = ++viewerClassificationRequestToken;
+  const filters = getClassificationFilters();
   const result = await window.exporter.listJewelryImages({
     datasetDir: viewerDatasetDir,
-    filters: getClassificationFilters(),
-    offset: viewerClassificationOffset,
-    limit: viewerClassificationLimit,
+    filters,
+    offset: 0,
+    limit: 1,
   });
   if (requestToken !== viewerClassificationRequestToken) return;
   if (!result.ok) {
     await showFriendlyError('数据集读取失败', result.error || '无法读取图片分类数据');
     return;
   }
-  viewerClassificationItems = result.result.items || [];
   viewerClassificationRuns = result.result.runs || [];
   viewerClassificationTotal = Number(result.result.total) || 0;
-  viewerClassificationOffset = Number(result.result.offset) || 0;
-  viewerClassificationLimit = Number(result.result.limit) || 50;
+  viewerClassificationStateCounts = result.result.stateCounts || {};
+  viewerClassificationDayCounts = result.result.dayCounts || {};
+  viewerClassificationLoadVersion += 1;
+  viewerClassificationDayLoads.clear();
+  if (resetExpanded) viewerExpandedClassificationDays.clear();
   populateClassificationFilters(result.result);
+  if (JSON.stringify(filters) !== JSON.stringify(getClassificationFilters())) {
+    await loadClassificationReview({ resetExpanded: true });
+    return;
+  }
+  const selectedDay = viewerClassificationDay.value;
+  if (selectedDay && viewerClassificationDayCounts[selectedDay]) {
+    viewerExpandedClassificationDays.add(selectedDay);
+  }
+  for (const day of [...viewerExpandedClassificationDays]) {
+    if (!viewerClassificationDayCounts[day]) viewerExpandedClassificationDays.delete(day);
+  }
   updateClassificationSummary();
-  updateClassificationPagination();
   renderClassificationItems();
+  viewerClassificationLoadedDatasetDir = viewerDatasetDir;
+  viewerClassificationLoadedFilterSignature = JSON.stringify(getClassificationFilters());
 }
 
 async function openClassificationReview() {
@@ -4479,17 +5411,33 @@ async function openClassificationReview() {
   }
   if (!(await ensureJewelryTaxonomy())) return;
   renderBatchProcessOptions();
+  viewerClassificationState.value = '';
+  if (viewerClassificationDateDatasetDir !== viewerDatasetDir) {
+    viewerClassificationDateDatasetDir = viewerDatasetDir;
+    viewerClassificationDateInitialized = false;
+    viewerClassificationRangeMode = 'latest';
+    viewerClassificationDay.value = '';
+    viewerClassificationDateFrom.value = '';
+    viewerClassificationDateTo.value = '';
+  }
   viewerClassificationPanel.classList.remove('hidden');
-  await loadClassificationReview({ resetPage: true });
+  if (
+    viewerClassificationLoadedDatasetDir === viewerDatasetDir &&
+    viewerClassificationLoadedFilterSignature === JSON.stringify(getClassificationFilters())
+  ) {
+    return;
+  }
+  await loadClassificationReview({ resetExpanded: true });
 }
 
 function closeClassificationReview() {
   viewerClassificationPanel.classList.add('hidden');
+  closeSimilarityResults();
 }
 
 function scheduleClassificationReload() {
   clearTimeout(viewerClassificationFilterTimer);
-  viewerClassificationFilterTimer = setTimeout(() => void loadClassificationReview({ resetPage: true }), 180);
+  viewerClassificationFilterTimer = setTimeout(() => void loadClassificationReview({ resetExpanded: true }), 180);
 }
 
 async function applyBatchProcesses() {
@@ -4510,22 +5458,56 @@ async function applyBatchProcesses() {
     return;
   }
   viewerSelectedClassificationImages = new Set();
+  invalidateClassificationReviewCache();
   await loadClassificationReview();
+}
+
+async function submitPreparedClassification(preparation) {
+  if (!(await ensureJewelryCodexConsent(preparation))) return;
+  const result = await window.exporter.retryJewelryClassification({
+    datasetDir: viewerDatasetDir,
+    imageIds: preparation.imageIds,
+    eligibleStates: preparation.eligibleStates,
+    filters: preparation.filters || {},
+  });
+  if (!result.ok) {
+    await showFriendlyError('提交失败', result.error || '无法创建 Codex 分类任务');
+    return;
+  }
+  setViewerSyncStatus('已提交 ' + preparation.targetCount + ' 张图片进行识别', 'syncing');
+}
+
+async function prepareClassificationRequest(imageIds, eligibleStates = null, filters = getClassificationFilters()) {
+  const response = await window.exporter.prepareJewelryClassification({
+    datasetDir: viewerDatasetDir,
+    imageIds,
+    eligibleStates,
+    filters,
+  });
+  if (!response.ok) {
+    await showFriendlyError('准备识别失败', response.error || '无法读取待分类图片');
+    return null;
+  }
+  if (!response.result?.targetCount) {
+    await showFriendlyError('没有待识别图片', '当前日期和群聊范围内没有可提交的真实图片。');
+    return null;
+  }
+  return { ...response.result, filters };
+}
+
+async function classifyPendingImages(filters = getClassificationFilters()) {
+  const preparation = await prepareClassificationRequest(null, ['pending', 'failed'], filters);
+  if (preparation) await submitPreparedClassification(preparation);
 }
 
 async function retrySelectedClassifications() {
   const imageIds = [...viewerSelectedClassificationImages];
   if (!imageIds.length) {
-    await showFriendlyError('未选择图片', '请先勾选要识别的图片。');
+    await showFriendlyError('未选择图片', '请先勾选要重试识别的图片。');
     return;
   }
-  if (!(await ensureJewelryCodexConsent())) return;
-  const result = await window.exporter.retryJewelryClassification({ datasetDir: viewerDatasetDir, imageIds });
-  if (!result.ok) {
-    await showFriendlyError('提交失败', result.error || '无法创建 Codex 分类任务');
-    return;
-  }
-  setViewerSyncStatus(`已提交 ${imageIds.length} 张图片进行识别`, 'syncing');
+  const preparation = await prepareClassificationRequest(imageIds, null, getClassificationFilters());
+  if (preparation) await submitPreparedClassification(preparation);
 }
 
 document.getElementById('pickWxDir').addEventListener('click', () => {
@@ -4709,6 +5691,23 @@ voiceTranscriptionInput?.addEventListener('change', () => {
   void refreshSelectionSummary({ highlight: true });
 });
 
+for (const input of [recordsStartYear, recordsStartMonth, recordsStartDay]) {
+  input?.addEventListener('input', () => {
+    input.value = input.value.replace(/\D/g, '').slice(0, input.maxLength);
+    recordsStartDateControl?.classList.remove('invalid');
+    if (clearRecordsStartTimeBtn) clearRecordsStartTimeBtn.disabled = !getRecordsStartDateValue();
+  });
+  input?.addEventListener('change', () => {
+    if (input !== recordsStartYear && /^\d$/.test(input.value)) input.value = `0${input.value}`;
+    const parts = [recordsStartYear.value, recordsStartMonth.value, recordsStartDay.value];
+    if (parts.every(Boolean) || parts.every((part) => !part)) saveRecordsStartTimeForAccount();
+  });
+}
+clearRecordsStartTimeBtn?.addEventListener('click', () => {
+  setRecordsStartDateValue('');
+  saveRecordsStartTimeForAccount();
+  recordsStartYear.focus();
+});
 browseRecordsBtn?.addEventListener('click', () => void openRecordViewer());
 pickAccountDatasetBtn?.addEventListener('click', () => void pickAccountDatasetDirectory());
 closeViewerBtn?.addEventListener('click', closeRecordViewer);
@@ -4723,19 +5722,23 @@ viewerGroupSearch?.addEventListener('input', renderViewerGroups);
 viewerMemberSearch?.addEventListener('input', renderViewerMembers);
 viewerLoadOlderBtn?.addEventListener('click', () => void loadViewerMessages({ older: true }));
 viewerPickDatasetBtn?.addEventListener('click', () => void pickViewerDatasetDirectory());
+viewerNoteUpdateBtn?.addEventListener('click', () => void startViewerNoteHydration());
 viewerOpenReviewBtn?.addEventListener('click', () => void openClassificationReview());
 viewerCloseReviewBtn?.addEventListener('click', closeClassificationReview);
 viewerApplyBatchProcessesBtn?.addEventListener('click', () => void applyBatchProcesses());
-viewerRetryClassificationBtn?.addEventListener('click', () => void retrySelectedClassifications());
-viewerClassificationPrevBtn?.addEventListener('click', () => {
-  viewerClassificationOffset = Math.max(0, viewerClassificationOffset - viewerClassificationLimit);
-  void loadClassificationReview();
+viewerSelectCurrentClassificationBtn?.addEventListener('click', () => {
+  void selectClassificationImageIds(getClassificationFilters(), viewerSelectCurrentClassificationBtn);
 });
-viewerClassificationNextBtn?.addEventListener('click', () => {
-  if (viewerClassificationOffset + viewerClassificationLimit >= viewerClassificationTotal) return;
-  viewerClassificationOffset += viewerClassificationLimit;
-  void loadClassificationReview();
+viewerClearClassificationSelectionBtn?.addEventListener('click', () => {
+  viewerSelectedClassificationImages.clear();
+  syncClassificationSelectionControls();
 });
+viewerRetryClassificationBtn?.addEventListener('click', () => void classifyPendingImages());
+viewerRetrySelectedClassificationBtn?.addEventListener('click', () => void retrySelectedClassifications());
+viewerUploadSimilarityBtn?.addEventListener('click', () => void chooseSimilarityQueryImage());
+viewerCloseSimilarityBtn?.addEventListener('click', closeSimilarityResults);
+viewerRefreshSimilarityBtn?.addEventListener('click', () => void runSimilaritySearch());
+viewerSimilarityAllHistory?.addEventListener('change', () => void runSimilaritySearch());
 viewerCancelClassificationBtn?.addEventListener('click', async () => {
   await window.exporter.cancelJewelryClassification();
   setViewerSyncStatus('已请求取消图片识别', 'idle');
@@ -4748,12 +5751,13 @@ viewerAutoSync?.addEventListener('change', () => {
   if (viewerAutoSync.checked && viewerGroupLoadConfirmed) void checkViewerDataStatus();
   else if (viewerAutoSync.checked) setViewerSyncStatus('尚未读取群聊数据', 'idle');
   else setViewerSyncStatus('自动检查已暂停', 'idle');
+  renderViewerNoteHydration();
 });
 viewerSelectAllMembers?.addEventListener('change', () => {
   viewerSelectedMembers = viewerSelectAllMembers.checked ? null : new Set();
   saveCurrentViewerSyncOption();
   renderViewerMembers();
-  scheduleViewerReload();
+  scheduleViewerReload({ syncDataset: false });
 });
 viewerSelectAllGroups?.addEventListener('change', () => {
   viewerSelectedGroups = viewerSelectAllGroups.checked
@@ -4787,6 +5791,7 @@ viewerSyncText?.addEventListener('change', () => {
 });
 viewerSyncImages?.addEventListener('change', () => {
   saveCurrentViewerSyncOption();
+  renderViewerNoteHydration();
   scheduleViewerReload();
 });
 viewerBatchNoProcess?.addEventListener('change', () => {
@@ -4803,29 +5808,101 @@ for (const filter of [
 ]) {
   filter?.addEventListener('change', scheduleClassificationReload);
 }
+viewerClassificationDay?.addEventListener('change', () => {
+  viewerClassificationRangeMode = viewerClassificationDay.value ? 'single' : 'custom';
+  if (viewerClassificationDay.value) {
+    viewerClassificationDateFrom.value = '';
+    viewerClassificationDateTo.value = '';
+  }
+  updateClassificationRangeButtons();
+  scheduleClassificationReload();
+});
+for (const button of document.querySelectorAll('[data-classification-range]')) {
+  button.addEventListener('click', () => setClassificationDateRange(button.dataset.classificationRange));
+}
+viewerClassificationApplyDatesBtn?.addEventListener('click', async () => {
+  if (
+    viewerClassificationDateFrom.value &&
+    viewerClassificationDateTo.value &&
+    viewerClassificationDateFrom.value > viewerClassificationDateTo.value
+  ) {
+    await showFriendlyError('日期范围无效', '开始日期不能晚于结束日期。');
+    return;
+  }
+  viewerClassificationRangeMode = 'custom';
+  viewerClassificationDay.value = '';
+  updateClassificationRangeButtons();
+  scheduleClassificationReload();
+});
 viewerClassificationSender?.addEventListener('input', scheduleClassificationReload);
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   if (!viewerLightbox.classList.contains('hidden')) closeViewerLightbox();
+  else if (!viewerSimilarityPanel.classList.contains('hidden')) closeSimilarityResults();
   else if (!viewerClassificationPanel.classList.contains('hidden')) closeClassificationReview();
   else if (viewerIsOpen) closeRecordViewer();
 });
 
 window.exporter.onJewelryProgress((event) => {
-  if (event.phase === 'dataset-sync' || event.phase === 'image-resolve') {
+  if (event.phase === 'viewer-refresh') {
+    if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
+    if (event.username && event.username !== viewerSelectedGroup?.username) return;
+    if (!event.message) return;
+    const state = event.state === 'warning'
+      ? 'warning'
+      : event.state === 'ready' ? 'ready' : 'syncing';
+    setViewerSyncStatus(event.message, state);
+    appendViewerProgressLog(event.message, state === 'warning' ? 'warning' : 'idle');
+  } else if (event.phase === 'note-hydration') {
+    if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
+    if (event.username && event.username !== viewerSelectedGroup?.username) return;
+    if (event.subphase === 'local-start' || event.subphase === 'local-done') {
+      viewerNoteHydrationRunning = true;
+      viewerNoteHydrationActiveStage = event.subphase === 'local-start' ? 'local' : 'resource';
+    }
+    if (event.subphase?.startsWith('resource-')) {
+      viewerNoteHydrationRunning = true;
+      viewerNoteHydrationActiveStage = 'resource';
+    }
+    if (event.subphase === 'done') {
+      viewerNoteHydrationRunning = false;
+      viewerNoteHydrationActiveStage = 'done';
+      if (event.summary) viewerNoteHydrationSummaryData = event.summary;
+    }
+    renderViewerNoteHydration();
+    const eventMessage = event.message || '';
+    if (eventMessage) {
+      const isWarning =
+        ['resource-error', 'resource-unavailable'].includes(event.subphase) ||
+        event.subphase === 'done' && Number(event.unresolvedCount) > 0;
+      setViewerSyncStatus(
+        eventMessage,
+        isWarning ? 'warning' : event.subphase === 'done' ? 'ready' : 'syncing'
+      );
+      appendViewerProgressLog(eventMessage, isWarning ? 'warning' : 'idle');
+    }
+  } else if (event.phase === 'dataset-sync' || event.phase === 'image-resolve') {
     if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
     if (event.scope === 'viewer' && event.username !== viewerSelectedGroup?.username) return;
     const message = event.message || `保存群聊 ${event.current}/${event.total} · ${event.displayName || ''}`;
     setViewerSyncStatus(message, 'syncing');
     appendViewerProgressLog(message);
+  } else if (event.phase === 'similarity-index') {
+    viewerSimilaritySummary.textContent =
+      '正在建立本地向量 · 新增 ' + event.indexed + ' · 复用 ' + event.reused + ' · 跳过 ' + event.skipped;
   } else if (event.phase === 'classification-start') {
+    invalidateClassificationReviewCache();
     setViewerSyncStatus(`开始识别 ${event.total} 张图片`, 'syncing');
   } else if (event.phase === 'classification-batch') {
     setViewerSyncStatus(`图片识别 ${event.current}/${event.total}`, 'syncing');
   } else if (event.phase === 'classification-done') {
+    invalidateClassificationReviewCache();
     setViewerSyncStatus(`图片识别完成 · ${event.completed} 成功，${event.failed} 失败`, event.failed ? 'warning' : 'ready');
-    if (!viewerClassificationPanel.classList.contains('hidden')) void loadClassificationReview();
+    viewerClassificationState.value = 'codex_results';
+    viewerClassificationRun.value = '';
+    if (!viewerClassificationPanel.classList.contains('hidden')) void loadClassificationReview({ resetExpanded: true });
   } else if (event.phase === 'classification-failed') {
+    invalidateClassificationReviewCache();
     setViewerSyncStatus(event.error || '图片识别失败', 'warning');
     if (!viewerClassificationPanel.classList.contains('hidden')) void loadClassificationReview();
   }

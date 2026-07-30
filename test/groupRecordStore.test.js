@@ -5,7 +5,10 @@ const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
 const initSqlJs = require('sql.js');
-const { loadCachedConversationMessages } = require('../lib/groupRecordService');
+const {
+  loadCachedConversationMessages,
+  refreshCachedGroupRecords,
+} = require('../lib/groupRecordService');
 const { openGroupRecordStore } = require('../lib/groupRecordStore');
 const { getAccountDataPaths } = require('../lib/accountDataPaths');
 
@@ -55,6 +58,9 @@ test('group record store persists indexed messages and supports filters', async 
     assert.equal(store.getGroupInfo(username).messageCount, 4);
     assert.deepEqual(store.listMembers(username).map((item) => [item.wxid, item.messageCount]), [
       ['alice', 2],
+      ['bob', 2],
+    ]);
+    assert.deepEqual(store.listMembers(username, 250).map((item) => [item.wxid, item.messageCount]), [
       ['bob', 2],
     ]);
 
@@ -125,6 +131,15 @@ test('group record service builds once and merges newly decrypted messages', asy
     fs.writeFileSync(messageDbPath, Buffer.from(db.export()));
     db.close();
     fs.writeFileSync(path.join(decryptedDir, 'info.json'), JSON.stringify({ encrypted_fingerprint: 'v2' }));
+
+    const refreshed = await refreshCachedGroupRecords({
+      wxDir: accountDir,
+      username,
+      datasetDir,
+      recordDbPath: legacyRecordDbPath,
+    });
+    assert.equal(refreshed.addedMessages, 1);
+    assert.equal(refreshed.messageCount, 3);
 
     const second = await loadCachedConversationMessages({
       wxDir: accountDir,

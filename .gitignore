@@ -6,3 +6,6 @@ assets/models/**
 output/
 vwxyz/
 aws/
+aws/native/wexin-hook/build/
+assets/dll/Release/
+skills/classify-jewelry-images/learning/*.db*

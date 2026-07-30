@@ -1,8 +1,8 @@
-﻿const { app, BrowserWindow, dialog, ipcMain, shell, nativeImage } = require('electron');
+﻿const { app, BrowserWindow, dialog, ipcMain, shell, nativeImage, session } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { Worker } = require('worker_threads');
-const { resolveWxDir, getWxDirStatus } = require('../lib/exportCore');
+const { pathToFileURL } = require('url');const { resolveWxDir, getWxDirStatus } = require('../lib/exportCore');
 const { detectWeChatDataPaths } = require('../lib/wxPathDetect');
 const {
   getConversationCache,
@@ -18,6 +18,7 @@ const { classifyScanError, buildFeedbackSummary } = require('../lib/errorCatalog
 const { runPreflightChecks } = require('../lib/preflightCheck');
 const { createJewelryTaskCoordinator } = require('../lib/jewelryTaskCoordinator');
 const { getAccountDataPaths } = require('../lib/accountDataPaths');
+const { getDefaultLearningDbPath } = require('../lib/jewelrySkill');
 
 let mainWindow = null;
 let exportRunning = false;
@@ -26,7 +27,46 @@ let scanCancelRequested = false;
 let exportCancelRequested = false;
 let currentWorker = null;
 let scanWorker = null;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
+const RENDERER_PATH = path.join(__dirname, 'renderer', 'index.html');
+const RENDERER_URL = pathToFileURL(RENDERER_PATH).href;
+const BLOCKED_OPEN_EXTENSIONS = new Set([
+  '.bat', '.cmd', '.com', '.cpl', '.csv', '.exe', '.hta', '.htm', '.html',
+  '.inf', '.ins', '.iso', '.jar', '.js', '.jse', '.lnk', '.msi', '.msp',
+  '.ps1', '.psd1', '.psm1', '.reg', '.scr', '.svg', '.url', '.vbe', '.vbs',
+  '.ws', '.wsc', '.wsf', '.wsh',
+]);
+
+function isTrustedIpcEvent(event) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (event.sender !== mainWindow.webContents) return false;
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) return false;
+  return event.senderFrame.url === RENDERER_URL;
+}
+
+function handleTrusted(channel, listener) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!isTrustedIpcEvent(event)) {
+      throw new Error('Rejected IPC call from an untrusted renderer');
+    }
+    return listener(event, ...args);
+  });
+}
+
+function validateOpenPath(targetPath) {
+  if (typeof targetPath !== 'string' || !targetPath.trim() || targetPath.includes('\0')) {
+    throw new Error('Invalid path');
+  }
+  const resolved = path.resolve(targetPath);
+  const stat = fs.statSync(resolved);
+  if (stat.isDirectory()) return resolved;
+  if (!stat.isFile()) throw new Error('Only files and directories can be opened');
+  if (BLOCKED_OPEN_EXTENSIONS.has(path.extname(resolved).toLowerCase())) {
+    throw new Error('Opening executable or active-content files is blocked');
+  }
+  return resolved;
+}
 function getSettingsPath() {
   return path.join(app.getPath('userData'), 'wetrace-settings.json');
 }
@@ -92,10 +132,19 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== RENDERER_URL) event.preventDefault();
+  });
+  mainWindow.webContents.on('will-redirect', (event, url) => {
+    if (url !== RENDERER_URL) event.preventDefault();
+  });
+  mainWindow.loadFile(RENDERER_PATH);
 }
 
 function sendProgress(payload) {
@@ -275,16 +324,21 @@ function ensureAccountRuntime(payload) {
   return job;
 }
 
-function queueJewelryClassification({ datasetDir, imageIds, eligibleStates = null }) {
+function queueJewelryClassification({ datasetDir, imageIds, eligibleStates = null, filters = {} }) {
+  const { validateTargetJewelryImageIds } = require('../lib/jewelryDataset');
+  validateTargetJewelryImageIds(datasetDir, imageIds);
   return jewelryTasks.queueClassification({
     datasetDir,
     imageIds,
     task: async (queuedImageIds) => {
+      validateTargetJewelryImageIds(datasetDir, queuedImageIds);
       const { runJewelryClassification } = require('../lib/codexJewelryClassifier');
       return runJewelryClassification({
         datasetDir,
         imageIds: queuedImageIds,
         eligibleStates,
+        filters,
+        learningDbPath: getDefaultLearningDbPath(),
         onProgress: sendJewelryProgress,
       });
     },
@@ -294,7 +348,7 @@ function queueJewelryClassification({ datasetDir, imageIds, eligibleStates = nul
   });
 }
 
-ipcMain.handle('load-settings', async () => {
+handleTrusted('load-settings', async () => {
   const settingsPath = getSettingsPath();
   try {
     if (fs.existsSync(settingsPath)) {
@@ -306,14 +360,14 @@ ipcMain.handle('load-settings', async () => {
   return {};
 });
 
-ipcMain.handle('save-settings', async (_event, settings) => {
+handleTrusted('save-settings', async (_event, settings) => {
   const settingsPath = getSettingsPath();
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
   fs.writeFileSync(settingsPath, JSON.stringify(settings || {}, null, 2), 'utf8');
   return { ok: true };
 });
 
-ipcMain.handle('get-app-info', async () => {
+handleTrusted('get-app-info', async () => {
   const pkg = require('../package.json');
   const { isWhisperModelBundled, isVoiceTranscriptionAvailable } = require('../lib/voiceTranscription');
   const { getPerfProfile } = require('../lib/exportEstimate');
@@ -328,7 +382,7 @@ ipcMain.handle('get-app-info', async () => {
   };
 });
 
-ipcMain.handle('get-data-status', async (_event, payload) => {
+handleTrusted('get-data-status', async (_event, payload) => {
   try {
     const response = await runViewerWorkerOnce('get-data-status', payload || {});
     if (!response?.ok) return { ok: false, error: response?.error || '无法检查数据' };
@@ -338,7 +392,16 @@ ipcMain.handle('get-data-status', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('build-pinyin-search-index', async (_event, payload) => {
+handleTrusted('refresh-current-group', async (_event, payload) => {
+  if (!payload?.username) return { ok: false, error: '未选择要刷新的群聊' };
+  try {
+    return await runViewerWorker('refresh-current-group', payload || {});
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+handleTrusted('build-pinyin-search-index', async (_event, payload) => {
   try {
     const { buildPinyinSearchIndex } = require('../lib/pinyinSearch');
     const items = Array.isArray(payload?.items) ? payload.items.slice(0, 5000) : [];
@@ -348,7 +411,7 @@ ipcMain.handle('build-pinyin-search-index', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('list-group-members', async (_event, payload) => {
+handleTrusted('list-group-members', async (_event, payload) => {
   try {
     const accountPaths = await ensureAccountRuntime(payload);
     return await runViewerWorker('list-group-members', {
@@ -360,7 +423,7 @@ ipcMain.handle('list-group-members', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('load-conversation-messages', async (_event, payload) => {
+handleTrusted('load-conversation-messages', async (_event, payload) => {
   try {
     const accountPaths = await ensureAccountRuntime(payload);
     return await runViewerWorker('load-conversation-messages', {
@@ -372,7 +435,7 @@ ipcMain.handle('load-conversation-messages', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('resolve-conversation-images', async (_event, payload) => {
+handleTrusted('resolve-conversation-images', async (_event, payload) => {
   try {
     const accountPaths = await ensureAccountRuntime(payload);
     let imageOutputDir = accountPaths.root;
@@ -397,7 +460,135 @@ ipcMain.handle('resolve-conversation-images', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('export-filtered-images', async (_event, payload) => {
+handleTrusted('list-note-hydration-tasks', async (_event, payload) => {
+  try {
+    return await jewelryTasks.queueRead(payload?.datasetDir, () =>
+      runViewerWorker('list-note-hydration-tasks', {
+        ...(payload || {}),
+        includeResourceDescriptors: false,
+      })
+    );
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+handleTrusted('start-note-hydration', async (_event, payload) => {
+  try {
+    if (!payload?.datasetDir || !payload?.username || !payload?.displayName) {
+      throw new Error('缺少当前群笔记补齐参数');
+    }
+
+    const {
+      downloadNoteResources,
+      isNoteResourceDownloadRunning,
+    } = require('../lib/noteResourceDownloader');
+    if (isNoteResourceDownloadRunning()) {
+      throw new Error('笔记图片更新任务正在运行');
+    }
+
+    const accountPaths = await ensureAccountRuntime(payload);
+    const selection = {
+      username: payload.username,
+      displayName: payload.displayName,
+      senderWxids: null,
+      startTime: null,
+      endTime: null,
+      includeText: true,
+      includeImages: true,
+      ...(payload.selection || {}),
+    };
+    const listTasks = (includeResourceDescriptors = false) => jewelryTasks.queueRead(
+      payload.datasetDir,
+      () => runViewerWorker('list-note-hydration-tasks', {
+        ...payload,
+        startTime: selection.startTime,
+        endTime: selection.endTime,
+        includeResourceDescriptors,
+      })
+    );
+    const syncResolvedImages = async (message) => {
+      sendJewelryProgress({
+        phase: 'note-hydration',
+        subphase: 'matching',
+        datasetDir: payload.datasetDir,
+        username: payload.username,
+        message,
+      });
+      const response = await jewelryTasks.queueSync(payload.datasetDir, () =>
+        runViewerWorker('sync-jewelry-dataset', {
+          ...payload,
+          wxDir: payload.accountPath || payload.wxDir,
+          decryptedDir: accountPaths.decryptedDir,
+          imageKeyCacheDir: accountPaths.imageKeyCacheDir,
+          noteResourceCacheDir: accountPaths.noteResourceCacheDir,
+          forceImageResolve: true,
+          selections: [selection],
+        })
+      );
+      if (!response?.ok) throw new Error(response?.error || '笔记图片精确匹配失败');
+      return response.result;
+    };
+
+    sendJewelryProgress({
+      phase: 'note-hydration',
+      subphase: 'local-start',
+      datasetDir: payload.datasetDir,
+      username: payload.username,
+      message: '正在按 MD5 扫描当前群的本地缓存',
+    });
+    let syncResult = await syncResolvedImages('正在匹配本地缓存中的笔记图片');
+    sendJewelryProgress({
+      phase: 'note-hydration',
+      subphase: 'local-done',
+      datasetDir: payload.datasetDir,
+      username: payload.username,
+      message: '本地缓存扫描完成',
+    });
+    const taskResponse = await listTasks(true);
+    if (!taskResponse?.ok) throw new Error(taskResponse?.error || '无法读取笔记补齐任务');
+    const resource = await downloadNoteResources({
+      datasetDir: payload.datasetDir,
+      tasks: taskResponse.result.tasks,
+    }, (event) => sendJewelryProgress({
+      ...event,
+      datasetDir: payload.datasetDir,
+      username: payload.username,
+      displayName: payload.displayName,
+    }));
+
+    if (resource.cached + resource.downloaded > 0) {
+      syncResult = await syncResolvedImages('正在按 MD5 校验笔记图片本地缓存');
+    }
+
+    const refreshed = await listTasks(false);
+    if (!refreshed?.ok) throw new Error(refreshed?.error || '无法刷新笔记补齐任务');
+    const unresolvedCount = Number(refreshed.result.summary?.pendingNotes) || 0;
+    sendJewelryProgress({
+      phase: 'note-hydration',
+      subphase: 'done',
+      datasetDir: payload.datasetDir,
+      username: payload.username,
+      unresolvedCount,
+      message: unresolvedCount
+        ? '当前还有 ' + unresolvedCount + ' 条未补齐，本地暂无可用资源'
+        : '当前群笔记图片补齐完成',
+      summary: refreshed.result.summary,
+    });
+    return {
+      ok: true,
+      result: {
+        resource,
+        sync: syncResult,
+        ...refreshed.result,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+handleTrusted('export-filtered-images', async (_event, payload) => {
   try {
     const accountPaths = await ensureAccountRuntime(payload);
     return await runViewerWorker('export-filtered-images', {
@@ -410,12 +601,12 @@ ipcMain.handle('export-filtered-images', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('get-jewelry-taxonomy', async () => {
+handleTrusted('get-jewelry-taxonomy', async () => {
   const { PRODUCT_CATEGORIES, JEWELRY_PROCESSES } = require('../lib/jewelryTaxonomy');
   return { ok: true, productCategories: PRODUCT_CATEGORIES, processes: JEWELRY_PROCESSES };
 });
 
-ipcMain.handle('sync-jewelry-dataset', async (_event, payload) => {
+handleTrusted('sync-jewelry-dataset', async (_event, payload) => {
   try {
     const accountPaths = await ensureAccountRuntime(payload);
     const result = await jewelryTasks.queueSync(payload?.datasetDir, () =>
@@ -431,12 +622,12 @@ ipcMain.handle('sync-jewelry-dataset', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('list-jewelry-images', async (_event, payload) => {
+handleTrusted('list-jewelry-images', async (_event, payload) => {
   try {
     const response = await jewelryTasks.queueRead(payload?.datasetDir, () =>
       runViewerWorker('list-jewelry-images', payload || {})
     );
-    if (response.ok) {
+    if (response.ok && !payload?.idsOnly) {
       const { validateDatasetImageAccess } = require('../lib/jewelryDataset');
       response.result.items = (response.result.items || []).map((item) =>
         validateDatasetImageAccess(payload.datasetDir, item)
@@ -448,44 +639,122 @@ ipcMain.handle('list-jewelry-images', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('save-jewelry-classification', async (_event, payload) => {
+handleTrusted('save-jewelry-classification', async (_event, payload) => {
   try {
     await jewelryTasks.getSyncChain(payload?.datasetDir);
-    const { saveManualClassification } = require('../lib/jewelryDataset');
-    return { ok: true, result: saveManualClassification(payload || {}) };
+    const { saveManualClassification, validateTargetJewelryImageIds } = require('../lib/jewelryDataset');
+    validateTargetJewelryImageIds(payload?.datasetDir, [payload?.imageId]);
+    return {
+      ok: true,
+      result: saveManualClassification({
+        ...(payload || {}),
+        learningDbPath: getDefaultLearningDbPath(),
+      }),
+    };
   } catch (err) {
     return { ok: false, error: err.message };
   }
 });
 
-ipcMain.handle('batch-save-jewelry-processes', async (_event, payload) => {
+handleTrusted('batch-save-jewelry-processes', async (_event, payload) => {
   try {
     await jewelryTasks.getSyncChain(payload?.datasetDir);
-    const { batchSaveProcesses } = require('../lib/jewelryDataset');
+    const { batchSaveProcesses, validateTargetJewelryImageIds } = require('../lib/jewelryDataset');
+    validateTargetJewelryImageIds(payload?.datasetDir, payload?.imageIds);
     return { ok: true, result: batchSaveProcesses(payload || {}) };
   } catch (err) {
     return { ok: false, error: err.message };
   }
 });
 
-ipcMain.handle('retry-jewelry-classification', async (_event, payload) => {
+handleTrusted('prepare-jewelry-classification', async (_event, payload) => {
   try {
+    if (Array.isArray(payload?.sources) && payload.sources.length) {
+      const { prepareClassificationScope } = require('../lib/jewelryClassificationScope');
+      const result = prepareClassificationScope({
+        ...(payload || {}),
+        states: payload?.eligibleStates || null,
+        learningDbPath: getDefaultLearningDbPath(),
+      });
+      return { ok: true, result };
+    }
+    const imageIds = Array.isArray(payload?.imageIds) ? payload.imageIds : null;
+    const result = await jewelryTasks.queueRead(payload?.datasetDir, () => {
+      if (imageIds) {
+        const { validateTargetJewelryImageIds } = require('../lib/jewelryDataset');
+        validateTargetJewelryImageIds(payload.datasetDir, imageIds);
+      }
+      const { prepareJewelryClassification } = require('../lib/codexJewelryClassifier');
+      return prepareJewelryClassification({
+        datasetDir: payload?.datasetDir,
+        imageIds,
+        eligibleStates: payload?.eligibleStates || null,
+        filters: payload?.filters || {},
+        learningDbPath: getDefaultLearningDbPath(),
+      });
+    });
+    return { ok: true, result };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+handleTrusted('retry-jewelry-classification', async (_event, payload) => {
+  try {
+    if (Array.isArray(payload?.sourceJobs) && payload.sourceJobs.length) {
+      let queued = 0;
+      for (const job of payload.sourceJobs) {
+        if (!job?.datasetDir || !Array.isArray(job.imageIds) || !job.imageIds.length) continue;
+        queued += job.imageIds.length;
+        queueJewelryClassification({
+          datasetDir: job.datasetDir,
+          imageIds: job.imageIds,
+          eligibleStates: payload.eligibleStates || null,
+          filters: job.filters || {},
+        }).catch(() => {});
+      }
+      if (!queued) throw new Error('请选择要重试的图片');
+      return { ok: true, result: { queued } };
+    }
     if (!payload?.datasetDir || !Array.isArray(payload.imageIds) || !payload.imageIds.length) {
       throw new Error('请选择要重试的图片');
     }
-    queueJewelryClassification({ datasetDir: payload.datasetDir, imageIds: payload.imageIds }).catch(() => {});
+    queueJewelryClassification({
+      datasetDir: payload.datasetDir,
+      imageIds: payload.imageIds,
+      eligibleStates: payload.eligibleStates || null,
+      filters: payload.filters || {},
+    }).catch(() => {});
     return { ok: true, result: { queued: payload.imageIds.length } };
   } catch (err) {
     return { ok: false, error: err.message };
   }
 });
-
-ipcMain.handle('cancel-jewelry-classification', async () => {
+handleTrusted('cancel-jewelry-classification', async () => {
   const { cancelJewelryClassification } = require('../lib/codexJewelryClassifier');
   return { ok: true, result: cancelJewelryClassification() };
 });
 
-ipcMain.handle('estimate-export', async (_event, params) => {
+handleTrusted('search-jewelry-similar', async (_event, payload) => {
+  try {
+    const sources = Array.isArray(payload?.sources) && payload.sources.length
+      ? payload.sources
+      : [{ datasetDir: payload?.datasetDir }];
+    const result = await jewelryTasks.queueRead(sources[0]?.datasetDir, async () => {
+      const { searchSimilarImage } = require('../lib/jewelrySimilarity');
+      return searchSimilarImage({
+        ...(payload || {}),
+        sources,
+        learningDbPath: getDefaultLearningDbPath(),
+        onProgress: sendJewelryProgress,
+      });
+    });
+    return { ok: true, result };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+handleTrusted('estimate-export', async (_event, params) => {
   const { estimateExportDuration, getPerfProfile } = require('../lib/exportEstimate');
   const settingsPath = getSettingsPath();
   let learned = null;
@@ -503,7 +772,7 @@ ipcMain.handle('estimate-export', async (_event, params) => {
   });
 });
 
-ipcMain.handle('count-conversation-range', async (_event, options) => {
+handleTrusted('count-conversation-range', async (_event, options) => {
   try {
     const { countConversationMessagesInRange } = require('../lib/exportCore');
     const accountPaths = await ensureAccountRuntime(options);
@@ -517,7 +786,7 @@ ipcMain.handle('count-conversation-range', async (_event, options) => {
   }
 });
 
-ipcMain.handle('get-conversation-time-bounds', async (_event, options) => {
+handleTrusted('get-conversation-time-bounds', async (_event, options) => {
   try {
     const { getConversationTimeBounds } = require('../lib/exportCore');
     const accountPaths = await ensureAccountRuntime(options);
@@ -531,7 +800,7 @@ ipcMain.handle('get-conversation-time-bounds', async (_event, options) => {
   }
 });
 
-ipcMain.handle('record-export-perf', async (_event, sample) => {
+handleTrusted('record-export-perf', async (_event, sample) => {
   const { recordExportSample } = require('../lib/exportEstimate');
   const settingsPath = getSettingsPath();
   let settings = {};
@@ -548,7 +817,7 @@ ipcMain.handle('record-export-perf', async (_event, sample) => {
   return { ok: true, exportPerf: settings.exportPerf };
 });
 
-ipcMain.handle('detect-wx-paths', async () => {
+handleTrusted('detect-wx-paths', async () => {
   try {
     return { ok: true, paths: detectWeChatDataPaths() };
   } catch (err) {
@@ -556,7 +825,7 @@ ipcMain.handle('detect-wx-paths', async () => {
   }
 });
 
-ipcMain.handle('pick-file', async (_event, { title, filters, defaultPath }) => {
+handleTrusted('pick-file', async (_event, { title, filters, defaultPath }) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title,
     defaultPath,
@@ -569,7 +838,7 @@ ipcMain.handle('pick-file', async (_event, { title, filters, defaultPath }) => {
   return result.filePaths[0];
 });
 
-ipcMain.handle('pick-directory', async (_event, { title, defaultPath }) => {
+handleTrusted('pick-directory', async (_event, { title, defaultPath }) => {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return null;
   }
@@ -584,7 +853,7 @@ ipcMain.handle('pick-directory', async (_event, { title, defaultPath }) => {
   return result.filePaths[0];
 });
 
-ipcMain.handle('is-directory-empty', async (_event, dirPath) => {
+handleTrusted('is-directory-empty', async (_event, dirPath) => {
   try {
     if (!dirPath || !fs.existsSync(dirPath)) {
       return { ok: true, empty: true };
@@ -600,7 +869,7 @@ ipcMain.handle('is-directory-empty', async (_event, dirPath) => {
   }
 });
 
-ipcMain.handle('validate-wx-dir', async (_event, payload) => {
+handleTrusted('validate-wx-dir', async (_event, payload) => {
   const wxDir = typeof payload === 'string' ? payload : payload?.wxDir;
   const accountPath = typeof payload === 'object' ? payload?.accountPath : null;
   try {
@@ -614,7 +883,7 @@ ipcMain.handle('validate-wx-dir', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('enrich-accounts', async (_event, { accounts }) => {
+handleTrusted('enrich-accounts', async (_event, { accounts }) => {
   try {
     const msg = await runProfileWorker(accounts || []);
     if (msg.ok) {
@@ -626,7 +895,7 @@ ipcMain.handle('enrich-accounts', async (_event, { accounts }) => {
   }
 });
 
-ipcMain.handle('check-wechat-status', async (_event, payload) => {
+handleTrusted('check-wechat-status', async (_event, payload) => {
   const wxDir = typeof payload === 'string' ? payload : payload?.wxDir;
   const accountPath = typeof payload === 'object' ? payload?.accountPath : null;
   try {
@@ -647,7 +916,7 @@ ipcMain.handle('check-wechat-status', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('load-conversation-cache', async (_event, { accountPath, scanId, datasetDir }) => {
+handleTrusted('load-conversation-cache', async (_event, { accountPath, scanId, datasetDir }) => {
   try {
     const cache =
       getConversationCache(getConversationCachePath(datasetDir), accountPath, scanId || null) ||
@@ -661,7 +930,7 @@ ipcMain.handle('load-conversation-cache', async (_event, { accountPath, scanId, 
   }
 });
 
-ipcMain.handle('clear-conversation-cache', async (_event, { accountPath, scanId, datasetDir }) => {
+handleTrusted('clear-conversation-cache', async (_event, { accountPath, scanId, datasetDir }) => {
   try {
     clearConversationCache(getConversationCachePath(datasetDir), accountPath, scanId || null);
     clearConversationCache(getConversationCachePath(), accountPath, scanId || null);
@@ -671,7 +940,7 @@ ipcMain.handle('clear-conversation-cache', async (_event, { accountPath, scanId,
   }
 });
 
-ipcMain.handle('patch-conversation-cache-label', async (_event, { accountPath, displayName, datasetDir }) => {
+handleTrusted('patch-conversation-cache-label', async (_event, { accountPath, displayName, datasetDir }) => {
   try {
     if (!datasetDir) return { ok: false };
     const updated = updateCacheDisplayName(getConversationCachePath(datasetDir), accountPath, displayName);
@@ -681,7 +950,7 @@ ipcMain.handle('patch-conversation-cache-label', async (_event, { accountPath, d
   }
 });
 
-ipcMain.handle('list-conversation-caches', async (_event, payload) => {
+handleTrusted('list-conversation-caches', async (_event, payload) => {
   try {
     const datasetDirs = [...new Set((payload?.datasetDirs || []).filter(Boolean))];
     const datasetCaches = datasetDirs.flatMap((datasetDir) =>
@@ -705,7 +974,7 @@ ipcMain.handle('list-conversation-caches', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('get-scan-requirements', async (_event, payload) => {
+handleTrusted('get-scan-requirements', async (_event, payload) => {
   try {
     const { needsDecrypt, hasDecryptedStorage } = require('../lib/decryptCore');
     const accountPath = payload?.accountPath;
@@ -732,7 +1001,7 @@ ipcMain.handle('get-scan-requirements', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('run-preflight', async (_event, payload) => {
+handleTrusted('run-preflight', async (_event, payload) => {
   try {
     const result = runPreflightChecks({
       wxDir: payload?.wxDir,
@@ -745,27 +1014,27 @@ ipcMain.handle('run-preflight', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('get-log-dir', async () => {
+handleTrusted('get-log-dir', async () => {
   const logDir = getDiagnosticsLogDir();
   fs.mkdirSync(logDir, { recursive: true });
   return { ok: true, logDir };
 });
 
-ipcMain.handle('open-log-dir', async () => {
+handleTrusted('open-log-dir', async () => {
   const logDir = getDiagnosticsLogDir();
   fs.mkdirSync(logDir, { recursive: true });
   await shell.openPath(logDir);
   return { ok: true, logDir };
 });
 
-ipcMain.handle('open-user-data-dir', async () => {
+handleTrusted('open-user-data-dir', async () => {
   const userDataPath = app.getPath('userData');
   fs.mkdirSync(userDataPath, { recursive: true });
   await shell.openPath(userDataPath);
   return { ok: true, userDataPath };
 });
 
-ipcMain.handle('reset-account-decrypt-data', async (_event, payload) => {
+handleTrusted('reset-account-decrypt-data', async (_event, payload) => {
   if (scanRunning || exportRunning) {
     return { ok: false, error: '扫描或导出进行中，请稍后再试' };
   }
@@ -784,7 +1053,7 @@ ipcMain.handle('reset-account-decrypt-data', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('reset-all-tool-traces', async (_event, payload) => {
+handleTrusted('reset-all-tool-traces', async (_event, payload) => {
   if (scanRunning || exportRunning) {
     return { ok: false, error: '扫描或导出进行中，请稍后再试' };
   }
@@ -794,10 +1063,12 @@ ipcMain.handle('reset-all-tool-traces', async (_event, payload) => {
     const additionalAccountPaths = Array.isArray(payload?.additionalAccountPaths)
       ? payload.additionalAccountPaths
       : [];
+    const datasetDirs = Array.isArray(payload?.datasetDirs) ? payload.datasetDirs : [];
     const result = resetAllToolTraces(userDataPath, {
       conversationCachePath: getConversationCachePath(),
       settingsPath: getSettingsPath(),
       additionalAccountPaths,
+      datasetDirs,
     });
     return { ok: true, ...result };
   } catch (err) {
@@ -805,7 +1076,7 @@ ipcMain.handle('reset-all-tool-traces', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('scan-conversations', async (_event, options) => {
+handleTrusted('scan-conversations', async (_event, options) => {
   if (scanRunning) {
     return { ok: false, error: '扫描正在进行中' };
   }
@@ -1031,7 +1302,7 @@ ipcMain.handle('scan-conversations', async (_event, options) => {
   }
 });
 
-ipcMain.handle('cancel-scan', async () => {
+handleTrusted('cancel-scan', async () => {
   scanCancelRequested = true;
   scanRunning = false;
   const worker = scanWorker;
@@ -1105,7 +1376,7 @@ function runExportInWorker(options) {
   });
 }
 
-ipcMain.handle('start-export', async (_event, options) => {
+handleTrusted('start-export', async (_event, options) => {
   if (exportRunning) {
     return { ok: false, error: '导出任务正在进行中' };
   }
@@ -1148,7 +1419,7 @@ ipcMain.handle('start-export', async (_event, options) => {
   }
 });
 
-ipcMain.handle('cancel-export', async () => {
+handleTrusted('cancel-export', async () => {
   exportCancelRequested = true;
   exportRunning = false;
   const worker = currentWorker;
@@ -1163,11 +1434,14 @@ ipcMain.handle('cancel-export', async () => {
   return { ok: true, cancelled: true };
 });
 
-ipcMain.handle('open-path', async (_event, targetPath) => {
-  await shell.openPath(targetPath);
+handleTrusted('open-path', async (_event, targetPath) => {
+  const resolved = validateOpenPath(targetPath);
+  const error = await shell.openPath(resolved);
+  if (error) throw new Error('Unable to open path: ' + error);
+  return { ok: true };
 });
 
-ipcMain.handle('show-error-dialog', async (_event, { title, message, detail }) => {
+handleTrusted('show-error-dialog', async (_event, { title, message, detail }) => {
   await dialog.showMessageBox(mainWindow, {
     type: 'error',
     title: title || '操作失败',
@@ -1177,24 +1451,39 @@ ipcMain.handle('show-error-dialog', async (_event, { title, message, detail }) =
   });
 });
 
-app.whenReady().then(() => {
-  if (process.platform === 'win32') {
-    app.setAppUserModelId('com.wetrace.exporter');
-  }
-  clearViewerCache();
-  createWindow();
-});
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 
-app.on('before-quit', clearViewerCache);
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  app.whenReady().then(() => {
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('com.wetrace.exporter');
+    }
+    session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+      callback(false);
+    });
+    clearViewerCache();
     createWindow();
-  }
-});
+  });
+
+  app.on('before-quit', clearViewerCache);
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+}

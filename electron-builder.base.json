@@ -8,7 +8,10 @@
   "files": [
     "electron/**/*",
     "lib/**/*",
-    "assets/dll/**/*",
+    "skills/**/*",
+    "!skills/classify-jewelry-images/learning/*.db*",
+    "assets/dll/wexin_hook.dll",
+    "assets/dll/wexin_hook.dll.sha256",
     "!assets/models/**",
     "build/logo.svg",
     "build/icon.ico",
@@ -20,9 +23,12 @@
   "asarUnpack": [
     "node_modules/sql.js/dist/**",
     "node_modules/koffi/**",
-    "node_modules/@xenova/transformers/**",
+    "node_modules/@huggingface/transformers/**",
+    "node_modules/onnxruntime-node/**",
+    "node_modules/sharp/**",
+    "node_modules/@img/**",
     "node_modules/silk-wasm/**",
-    "assets/dll/**"
+    "assets/dll/wexin_hook.dll"
   ],
   "extraResources": [
     {
@@ -35,6 +41,14 @@
         "**/onnx/decoder_model_merged_quantized.onnx",
         "!**/.staging-cache/**",
         "!**/.gitkeep"
+      ]
+    },
+    {
+      "from": "skills",
+      "to": "skills",
+      "filter": [
+        "**/*",
+        "!classify-jewelry-images/learning/*.db*"
       ]
     }
   ],
