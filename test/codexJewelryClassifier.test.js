@@ -20,6 +20,7 @@ const {
   readDatasetItems,
   readJson,
   resolveInside,
+  saveClassificationRun,
 } = require('../lib/jewelryDataset');
 const { saveLearningSample } = require('../lib/jewelryLearningStore');
 
@@ -213,6 +214,10 @@ if (args.includes('exec') && args.includes('--help')) {
 if (args.includes('login') && args.includes('status')) process.exit(0);
 const outputIndex = args.indexOf('--output-last-message');
 const schemaIndex = args.indexOf('--output-schema');
+if (args.includes('--cache-fail')) {
+  process.stderr.write('ERROR failed to load models cache: missing field supports_reasoning_summaries');
+  process.exit(2);
+}
 if (args.includes('--fail')) {
   process.stderr.write('fake classification failure');
   process.exit(2);
@@ -249,6 +254,13 @@ test('classification preparation reports targets without learning examples', () 
     assert.equal(prepared.exampleCount, 0);
     assert.equal(prepared.attachmentLimit, 10);
     assert.equal(prepared.targetBatchSize, 10);
+    assert.deepEqual(prepared.scope.conversations, [{
+      username: '43697551884@chatroom',
+      count: 1,
+      displayName: 'Fake group',
+    }]);
+    assert.deepEqual(prepared.scope.senders, [{ wxid: 'alice', count: 1, displayName: 'Alice' }]);
+    assert.equal(prepared.scope.days.length, 1);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
@@ -312,23 +324,43 @@ test('fake Codex CLI covers progress, failure, retry, and cancellation without a
       datasetDir,
       imageIds: [imageId],
       commandOverride: { command: process.execPath, prefixArgs: [fakePath, '--fail'] },
-      onProgress: (event) => progress.push(event.phase),
+      onProgress: (event) => progress.push(event),
     });
     assert.equal(failedRun.status, 'completed_with_errors');
+    assert.equal(failedRun.batchCount, 1);
+    assert.equal(failedRun.targetBatchSize, 10);
+    assert.equal(failedRun.scope.conversations[0].displayName, 'Fake group');
+    assert.equal(failedRun.scope.senders[0].displayName, 'Alice');
     assert.equal(readJson(annotationPath).items[sourceImageId].current.state, 'failed');
+
+    const cacheFailedRun = await runJewelryClassification({
+      datasetDir,
+      imageIds: [imageId],
+      commandOverride: { command: process.execPath, prefixArgs: [fakePath, '--cache-fail'] },
+    });
+    assert.equal(cacheFailedRun.status, 'completed_with_errors');
+    assert.match(cacheFailedRun.error, /模型缓存与当前 CLI 版本不兼容/);
+    assert.match(cacheFailedRun.error, /models_cache\.json/);
 
     const retriedRun = await runJewelryClassification({
       datasetDir,
       imageIds: [imageId],
       commandOverride: { command: process.execPath, prefixArgs: [fakePath] },
-      onProgress: (event) => progress.push(event.phase),
+      onProgress: (event) => progress.push(event),
     });
     assert.equal(retriedRun.status, 'completed');
     const retried = readJson(annotationPath).items[sourceImageId];
     assert.equal(retried.current.state, 'classified');
     assert.equal(retried.current.category.id, 'pendant');
     assert.deepEqual(retried.current.processes.map((item) => item.id), ['x5g']);
-    assert.ok(progress.includes('classification-event'));
+    assert.ok(progress.some((event) => event.phase === 'classification-event'));
+    const finalBatchProgress = progress.findLast((event) =>
+      event.phase === 'classification-batch' && event.runId === retriedRun.runId
+    );
+    assert.deepEqual(
+      { current: finalBatchProgress.current, total: finalBatchProgress.total, completed: finalBatchProgress.completed, failed: finalBatchProgress.failed },
+      { current: 1, total: 1, completed: 1, failed: 0 }
+    );
 
     const autoDuplicate = await runJewelryClassification({
       datasetDir,
@@ -338,16 +370,49 @@ test('fake Codex CLI covers progress, failure, retry, and cancellation without a
     });
     assert.equal(autoDuplicate.skipped, true);
 
+    let activeRunId = null;
+    let activeCancelResult = null;
     const cancelling = runJewelryClassification({
       datasetDir,
       imageIds: [imageId],
       commandOverride: { command: process.execPath, prefixArgs: [fakePath, '--slow'] },
+      onProgress: (event) => {
+        if (event.phase === 'classification-start') activeRunId = event.runId;
+      },
     });
-    setTimeout(() => cancelJewelryClassification(), 100);
+    setTimeout(() => {
+      activeCancelResult = cancelJewelryClassification({ datasetDir, runId: activeRunId });
+    }, 100);
     const cancelledRun = await cancelling;
+    assert.equal(activeCancelResult.cancelled, true);
+    assert.equal(activeCancelResult.active, true);
+    assert.equal(activeCancelResult.run.status, 'cancelled');
     assert.equal(cancelledRun.status, 'cancelled');
+
+    const staleRun = {
+      ...cancelledRun,
+      runId: 'run_stale_restart',
+      status: 'running',
+      completedAt: null,
+      completed: 0,
+      failed: 0,
+    };
+    saveClassificationRun(datasetDir, staleRun);
+    const staleCancelResult = cancelJewelryClassification({
+      datasetDir,
+      runId: staleRun.runId,
+    });
+    assert.equal(staleCancelResult.cancelled, true);
+    assert.equal(staleCancelResult.active, false);
+    assert.equal(staleCancelResult.run.status, 'cancelled');
+    assert.ok(staleCancelResult.run.completedAt);
+    assert.equal(
+      listClassificationRuns(datasetDir).find((run) => run.runId === staleRun.runId).status,
+      'cancelled'
+    );
+
     const afterCancel = readJson(annotationPath).items[sourceImageId];
-    assert.ok(listClassificationRuns(datasetDir).length >= 2);
+    assert.ok(listClassificationRuns(datasetDir).length >= 3);
     assert.equal(fs.existsSync(path.join(datasetDir, 'classification', 'runs')), false);
     assert.equal(afterCancel.current.state, 'classified');
     assert.equal(afterCancel.current.category.id, 'pendant');

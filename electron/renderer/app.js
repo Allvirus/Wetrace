@@ -3,6 +3,8 @@
 const JEWELRY_DATASET_KEY = 'wetrace.jewelryDatasetDirsByAccount';
 const LEGACY_JEWELRY_DATASET_KEY = 'wetrace.jewelryDatasetDir';
 const RECORDS_START_TIME_KEY = 'wetrace.recordsStartTimesByAccount';
+const CLASSIFICATION_COLUMNS_KEY = 'wetrace.classificationColumns';
+const CLASSIFICATION_TASK_LOG_LIMIT = 100;
 
 const wxDirInput = document.getElementById('wxDir');
 const accountField = document.getElementById('accountField');
@@ -121,23 +123,35 @@ const viewerOpenReviewBtn = document.getElementById('viewerOpenReviewBtn');
 const viewerClassificationPanel = document.getElementById('viewerClassificationPanel');
 const viewerCloseReviewBtn = document.getElementById('viewerCloseReviewBtn');
 const viewerClassificationSummary = document.getElementById('viewerClassificationSummary');
+const viewerClassificationTaskCount = document.getElementById('viewerClassificationTaskCount');
+const viewerClassificationTaskList = document.getElementById('viewerClassificationTaskList');
+const viewerClassificationTaskLog = document.getElementById('viewerClassificationTaskLog');
 const viewerClassificationState = document.getElementById('viewerClassificationState');
 const viewerClassificationDay = document.getElementById('viewerClassificationDay');
 const viewerClassificationDateFrom = document.getElementById('viewerClassificationDateFrom');
 const viewerClassificationDateTo = document.getElementById('viewerClassificationDateTo');
 const viewerClassificationApplyDatesBtn = document.getElementById('viewerClassificationApplyDatesBtn');
-const viewerClassificationGroup = document.getElementById('viewerClassificationGroup');
+const viewerClassificationGroupPicker = document.getElementById('viewerClassificationGroupPicker');
+const viewerClassificationGroupSummary = document.getElementById('viewerClassificationGroupSummary');
+const viewerClassificationGroupSearch = document.getElementById('viewerClassificationGroupSearch');
+const viewerClassificationSelectAllGroups = document.getElementById('viewerClassificationSelectAllGroups');
+const viewerClassificationGroupOptions = document.getElementById('viewerClassificationGroupOptions');
+const viewerClassificationSenderPicker = document.getElementById('viewerClassificationSenderPicker');
+const viewerClassificationSenderSummary = document.getElementById('viewerClassificationSenderSummary');
+const viewerClassificationSenderSearch = document.getElementById('viewerClassificationSenderSearch');
+const viewerClassificationSelectAllSenders = document.getElementById('viewerClassificationSelectAllSenders');
+const viewerClassificationSenderOptions = document.getElementById('viewerClassificationSenderOptions');
+const viewerClassificationAutoCollect = document.getElementById('viewerClassificationAutoCollect');
 const viewerClassificationCategory = document.getElementById('viewerClassificationCategory');
 const viewerClassificationProcess = document.getElementById('viewerClassificationProcess');
 const viewerClassificationRun = document.getElementById('viewerClassificationRun');
-const viewerClassificationSender = document.getElementById('viewerClassificationSender');
 const viewerBatchProcesses = document.getElementById('viewerBatchProcesses');
 const viewerBatchNoProcess = document.getElementById('viewerBatchNoProcess');
 const viewerApplyBatchProcessesBtn = document.getElementById('viewerApplyBatchProcessesBtn');
+const viewerClassificationLayout = document.getElementById('viewerClassificationLayout');
 const viewerSelectCurrentClassificationBtn = document.getElementById('viewerSelectCurrentClassificationBtn');
 const viewerClearClassificationSelectionBtn = document.getElementById('viewerClearClassificationSelectionBtn');
-const viewerRetryClassificationBtn = document.getElementById('viewerRetryClassificationBtn');
-const viewerRetrySelectedClassificationBtn = document.getElementById('viewerRetrySelectedClassificationBtn');
+const viewerCreateClassificationTaskBtn = document.getElementById('viewerCreateClassificationTaskBtn');
 const viewerCancelClassificationBtn = document.getElementById('viewerCancelClassificationBtn');
 const viewerClassificationList = document.getElementById('viewerClassificationList');
 const viewerUploadSimilarityBtn = document.getElementById('viewerUploadSimilarityBtn');
@@ -209,6 +223,7 @@ const EXPORT_WORK_SPAN = 88;
 const EXPORT_ETA_MIN_ELAPSED_SEC = 15;
 const EXPORT_ETA_UPDATE_MS = 5000;
 const VIEWER_SYNC_INTERVAL_MS = 10 * 1000;
+const VIEWER_MESSAGE_CACHE_LIMIT = 12;
 let viewerIsOpen = false;
 let viewerSyncing = false;
 let viewerStatusChecking = false;
@@ -219,6 +234,7 @@ let viewerSelectedGroup = null;
 let viewerMembers = [];
 let viewerSelectedMembers = null;
 let viewerMessages = [];
+let viewerRestoredMessageNodes = null;
 let viewerNextCursor = null;
 let viewerHasMore = false;
 let viewerLoading = false;
@@ -242,10 +258,18 @@ let viewerSelectedGroups = new Set();
 let viewerGroupSearchKeys = new Map();
 let viewerGroupSearchIndexToken = 0;
 const viewerGroupSyncOptions = new Map();
+const viewerMessageCaches = new Map();
 let jewelryProductCategories = [];
 let jewelryProcesses = [];
 let viewerClassificationRuns = [];
+const viewerExpandedClassificationRuns = new Set();
+let viewerClassificationTaskLogs = [];
+let viewerClassificationLogDatasetDir = '';
+const viewerLoggedClassificationRunStates = new Set();
 let viewerClassificationConversations = [];
+let viewerClassificationSenders = [];
+let viewerSelectedClassificationGroups = null;
+let viewerSelectedClassificationSenders = null;
 let viewerSelectedClassificationImages = new Set();
 let viewerSimilarityQuery = null;
 let viewerSimilarityRequestToken = 0;
@@ -390,7 +414,7 @@ function getStepBlockedReason(step) {
     return '正在导出，请稍候完成或取消后再切换步骤。';
   }
   if (step === 2 && !disclaimerAccepted.checked) {
-    return '请先勾选页面下方的免责声明，再点击「开始导出」按钮。';
+    return '请先确认数据使用范围，再点击「开始使用」按钮。';
   }
   if (step === 3 && !conversationItems.length) {
     return '请先选择不信账号并点击「扫描会话」，或加载历史扫描结果。';
@@ -3666,7 +3690,7 @@ async function startViewerNoteHydration() {
     unresolvedCount ? 'warning' : 'ready'
   );
   if (viewerSyncImages.checked) {
-    await resolveViewerMessageImages(viewerMessages, token);
+    await resolveViewerMessageImages(viewerMessages, token, { force: true });
   }
 }
 
@@ -3813,8 +3837,14 @@ function getViewerExpectedImageCount(message) {
   return count;
 }
 function renderViewerMessages() {
-  viewerMessageList.replaceChildren();
   viewerLoadOlderBtn.classList.toggle('hidden', !viewerHasMore || viewerLoading);
+  if (viewerRestoredMessageNodes) {
+    const nodes = viewerRestoredMessageNodes;
+    viewerRestoredMessageNodes = null;
+    viewerMessageList.replaceChildren(...nodes);
+    return;
+  }
+  viewerMessageList.replaceChildren();
   if (!viewerSelectedGroup) {
     const empty = document.createElement('div');
     empty.className = 'viewer-empty';
@@ -3901,6 +3931,69 @@ function getViewerMessageKey(message) {
   return `${message.createTime}:${message.id}:${message.serverId || ''}`;
 }
 
+function getViewerMessageCacheKey(group = viewerSelectedGroup) {
+  if (!group) return null;
+  const { start, endExclusive } = getViewerDateRange();
+  const senderWxids = getViewerSenderFilter();
+  return JSON.stringify({
+    accountKey: viewerActiveAccountKey,
+    datasetDir: viewerDatasetDir,
+    username: group.username,
+    start,
+    endExclusive,
+    senderWxids: senderWxids ? [...senderWxids].sort() : null,
+  });
+}
+
+function saveViewerMessageCache() {
+  const key = getViewerMessageCacheKey();
+  if (!key) return;
+  viewerMessageCaches.delete(key);
+  viewerMessageCaches.set(key, {
+    messages: viewerMessages,
+    nodes: [...viewerMessageList.childNodes],
+    imagesOnly: viewerImagesOnly,
+    nextCursor: viewerNextCursor,
+    hasMore: viewerHasMore,
+  });
+  while (viewerMessageCaches.size > VIEWER_MESSAGE_CACHE_LIMIT) {
+    viewerMessageCaches.delete(viewerMessageCaches.keys().next().value);
+  }
+}
+
+function restoreViewerMessageCache(group) {
+  const key = getViewerMessageCacheKey(group);
+  const cached = key ? viewerMessageCaches.get(key) : null;
+  if (!cached) return false;
+  viewerMessageCaches.delete(key);
+  viewerMessageCaches.set(key, cached);
+  viewerMessages = cached.messages;
+  viewerRestoredMessageNodes = cached.imagesOnly === viewerImagesOnly ? cached.nodes || [] : null;
+  viewerNextCursor = cached.nextCursor;
+  viewerHasMore = cached.hasMore;
+  return true;
+}
+
+function reuseViewerMessageImageState(message, cachedByKey) {
+  const cached = cachedByKey.get(getViewerMessageKey(message));
+  if (!cached) return false;
+  let reused = false;
+  if (Array.isArray(cached.previewImages)) {
+    message.previewImages = cached.previewImages;
+    reused = true;
+  }
+  if (cached.imageLoadState) {
+    message.imageLoadState = cached.imageLoadState;
+    reused = true;
+  }
+  return reused;
+}
+
+function viewerMessageNeedsImageResolve(message, force = false) {
+  if (!viewerMessageHasImage(message)) return false;
+  return force || (message.imageLoadState !== 'ready' && message.imageLoadState !== 'unavailable');
+}
+
 function viewerMessageHasImage(message) {
   return (
     Number(message?.type) === 3 ||
@@ -3910,9 +4003,14 @@ function viewerMessageHasImage(message) {
   );
 }
 
-async function resolveViewerMessageImages(messages, token, { datasetDir = viewerDatasetDir } = {}) {
+async function resolveViewerMessageImages(messages, token, {
+  datasetDir = viewerDatasetDir,
+  force = false,
+} = {}) {
   if (!viewerGroupLoadConfirmed) return;
-  const imageMessages = (messages || []).filter(viewerMessageHasImage);
+  const imageMessages = (messages || []).filter((message) =>
+    viewerMessageNeedsImageResolve(message, force)
+  );
   if (!imageMessages.length) return;
   const previousHeight = viewerMessageScroller.scrollHeight;
   const wasNearBottom =
@@ -3934,9 +4032,15 @@ async function resolveViewerMessageImages(messages, token, { datasetDir = viewer
   const requestedKeys = new Set(imageMessages.map(getViewerMessageKey));
   if (!result.ok) {
     for (const message of viewerMessages) {
-      if (requestedKeys.has(getViewerMessageKey(message))) message.imageLoadState = 'unavailable';
+      if (
+        requestedKeys.has(getViewerMessageKey(message)) &&
+        !(message.previewImages || []).length
+      ) {
+        message.imageLoadState = 'unavailable';
+      }
     }
     renderViewerMessages();
+    saveViewerMessageCache();
     setViewerSyncStatus('消息已读取，部分图片无法读取', 'warning');
     appendViewerProgressLog(result.error || '部分图片无法读取', 'warning');
     return;
@@ -3954,6 +4058,7 @@ async function resolveViewerMessageImages(messages, token, { datasetDir = viewer
     message.imageLoadState = resolved.length > 0 ? 'ready' : 'unavailable';
   }
   renderViewerMessages();
+  saveViewerMessageCache();
   if (wasNearBottom) {
     viewerMessageScroller.scrollTop = viewerMessageScroller.scrollHeight;
   } else {
@@ -4008,6 +4113,7 @@ async function loadViewerMessages({ older = false, resolveImages = true } = {}) 
 
   const token = viewerRequestToken;
   const oldHeight = viewerMessageScroller.scrollHeight;
+  const cachedByKey = new Map(viewerMessages.map((message) => [getViewerMessageKey(message), message]));
   const cursor = older
     ? viewerNextCursor
     : endExclusive != null
@@ -4015,10 +4121,6 @@ async function loadViewerMessages({ older = false, resolveImages = true } = {}) 
       : null;
   viewerLoading = true;
   viewerLoadOlderBtn.disabled = true;
-  if (!older) {
-    viewerMessages = [];
-    renderViewerMessages();
-  }
   updateViewerExportState();
 
   const result = await window.exporter.loadConversationMessages({
@@ -4036,8 +4138,6 @@ async function loadViewerMessages({ older = false, resolveImages = true } = {}) 
   updateViewerExportState();
 
   if (!result.ok) {
-    viewerMessages = older ? viewerMessages : [];
-    viewerHasMore = false;
     renderViewerMessages();
     setViewerSyncStatus(result.error || '消息读取失败', 'warning');
     return;
@@ -4046,7 +4146,10 @@ async function loadViewerMessages({ older = false, resolveImages = true } = {}) 
   const page = result.result;
   const incoming = page.messages || [];
   for (const message of incoming) {
-    if (viewerSyncImages.checked && viewerMessageHasImage(message)) message.imageLoadState = 'loading';
+    const imageStateReused = reuseViewerMessageImageState(message, cachedByKey);
+    if (viewerSyncImages.checked && viewerMessageHasImage(message) && !imageStateReused) {
+      message.imageLoadState = 'loading';
+    }
   }
   const combined = older ? [...incoming, ...viewerMessages] : incoming;
   const seen = new Set();
@@ -4060,7 +4163,10 @@ async function loadViewerMessages({ older = false, resolveImages = true } = {}) 
   viewerHasMore = Boolean(page.hasMore);
   viewerConversationMeta.textContent = `${formatCount(viewerMessages.length)} 条已加载 · ${viewerMembers.length || '—'} 位发言成员`;
   renderViewerMessages();
-  const hasImages = viewerSyncImages.checked && incoming.some(viewerMessageHasImage);
+  saveViewerMessageCache();
+  const hasImages = viewerSyncImages.checked && incoming.some((message) =>
+    viewerMessageNeedsImageResolve(message)
+  );
   setViewerSyncStatus(
     hasImages ? '消息已读取，正在加载图片' : `已读取 ${viewerSelectedGroup.displayName} 的消息`,
     hasImages ? 'syncing' : 'ready'
@@ -4110,6 +4216,7 @@ async function selectViewerGroup(group) {
   if (viewerEntryStartTime != null) {
     appendViewerProgressLog(`起始日期：${new Date(viewerEntryStartTime * 1000).toLocaleDateString('zh-CN')}`);
   }
+  saveViewerMessageCache();
   saveCurrentViewerSyncOption();
   viewerSelectedGroup = group;
   viewerMediaFingerprint = null;
@@ -4118,26 +4225,38 @@ async function selectViewerGroup(group) {
   viewerSelectedGroups.add(group.username);
   viewerRequestToken += 1;
   const token = viewerRequestToken;
-  viewerMessages = [];
-  viewerNextCursor = null;
-  viewerHasMore = false;
   viewerMembers = [];
   viewerNoteHydrationRequestToken += 1;
   viewerNoteHydrationTasks = [];
   viewerNoteHydrationSummaryData = null;
   viewerNoteHydrationActiveStage = '';
   restoreViewerSyncOption(group);
+  const restoredMessageCache = restoreViewerMessageCache(group);
+  if (!restoredMessageCache) {
+    viewerRestoredMessageNodes = null;
+    viewerMessages = [];
+    viewerNextCursor = null;
+    viewerHasMore = false;
+  }
   viewerLoading = false;
   viewerConversationTitle.textContent = group.displayName;
-  viewerConversationMeta.textContent = `${formatCount(group.messageCount)} 条消息`;
+  viewerConversationMeta.textContent = restoredMessageCache
+    ? `${formatCount(viewerMessages.length)} 条已加载 · 缓存`
+    : `${formatCount(group.messageCount)} 条消息`;
   renderViewerGroups();
   renderViewerMembers();
   renderViewerMessages();
   renderViewerNoteHydration();
   updateViewerExportState();
-  setViewerSyncStatus(`正在读取 ${group.displayName}`, 'syncing');
+  setViewerSyncStatus(
+    restoredMessageCache ? `已显示 ${group.displayName} 的缓存消息和图片` : `正在读取 ${group.displayName}`,
+    restoredMessageCache ? 'ready' : 'syncing'
+  );
   startViewerAutoSync();
-  await Promise.all([loadViewerMessages({ resolveImages: false }), loadViewerMembers(token)]);
+  await Promise.all([
+    restoredMessageCache ? Promise.resolve() : loadViewerMessages({ resolveImages: false }),
+    loadViewerMembers(token),
+  ]);
   if (token !== viewerRequestToken) return;
   const selection = getCurrentViewerDatasetSelection();
   if (selection) {
@@ -4352,7 +4471,6 @@ async function openRecordViewer() {
   viewerSelectedGroups = new Set();
   viewerMembers = [];
   viewerSelectedMembers = null;
-  viewerMessages = [];
   viewerNoteHydrationRequestToken += 1;
   viewerNoteHydrationTasks = [];
   viewerNoteHydrationSummaryData = null;
@@ -4384,6 +4502,7 @@ function closeRecordViewer() {
     setViewerSyncStatus('笔记图片正在更新，请等待完成后关闭', 'warning');
     return;
   }
+  saveViewerMessageCache();
   saveCurrentViewerSyncOption();
   viewerNoteHydrationRunning = false;
   viewerNoteHydrationRequestToken += 1;
@@ -4519,7 +4638,7 @@ async function syncViewerDataset({
   );
   if (!selections.length) {
     if (resolvePreviews && viewerSyncImages.checked && token === viewerRequestToken && isActiveContext()) {
-      await resolveViewerMessageImages(viewerMessages, token);
+      await resolveViewerMessageImages(viewerMessages, token, { force });
     }
     if (isActiveContext()) await refreshViewerNoteHydrationTasks();
     return true;
@@ -4574,9 +4693,18 @@ async function syncViewerDataset({
     `自动保存完成：新增 ${synced.syncedMessages} 条消息，解析 ${synced.syncedImages} 张图片`
   );
   if (resolvePreviews && viewerSyncImages.checked && token === viewerRequestToken && isActiveContext()) {
-    await resolveViewerMessageImages(viewerMessages, token, { datasetDir: synced.datasetDir });
+    await resolveViewerMessageImages(viewerMessages, token, {
+      datasetDir: synced.datasetDir,
+      force,
+    });
   }
   await refreshViewerNoteHydrationTasks();
+  if (
+    viewerClassificationAutoCollect?.checked &&
+    !viewerClassificationPanel.classList.contains('hidden')
+  ) {
+    await loadClassificationReview({ resetExpanded: true });
+  }
   return true;
 }
 
@@ -4632,8 +4760,12 @@ function getClassificationFilters() {
     includeUnknownDate: false,
     categoryId: viewerClassificationCategory.value || null,
     processId: viewerClassificationProcess.value || null,
-    conversationId: viewerClassificationGroup.value || null,
-    senderQuery: viewerClassificationSender.value.trim() || null,
+    conversationUsernames: viewerSelectedClassificationGroups === null
+      ? null
+      : [...viewerSelectedClassificationGroups],
+    senderWxids: viewerSelectedClassificationSenders === null
+      ? null
+      : [...viewerSelectedClassificationSenders],
     runId: viewerClassificationRun.value || null,
   };
 }
@@ -4703,8 +4835,542 @@ function classificationDayInCurrentRange(day) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
   return (!filters.dateFrom || day >= filters.dateFrom) && (!filters.dateTo || day <= filters.dateTo);
 }
+function classificationRunStatusLabel(status) {
+  return {
+    running: '正在识别',
+    completed: '已完成',
+    completed_with_errors: '部分失败',
+    failed: '失败',
+    cancelled: '已取消',
+  }[status] || '状态未知';
+}
+
+function classificationRunStatusClass(status) {
+  return ['running', 'completed', 'completed_with_errors', 'failed', 'cancelled'].includes(status)
+    ? status.replace(/_/g, '-')
+    : 'unknown';
+}
+
+function classificationRunRetryConfig(run) {
+  const status = String(run?.status || '');
+  if (status === 'completed_with_errors' || status === 'failed') {
+    return { label: '重试失败', title: '仅重试此任务中识别失败的图片', failedOnly: true };
+  }
+  if (status === 'cancelled') {
+    return { label: '继续任务', title: '重新提交此任务中未完成和失败的图片', failedOnly: false };
+  }
+  if (status === 'completed') {
+    return { label: '再次识别', title: '重新提交此任务的全部图片', failedOnly: false };
+  }
+  return null;
+}
+
+function classificationRunTimestamp(run) {
+  const date = new Date(run.createdAt);
+  if (Number.isNaN(date.getTime())) return '识别任务';
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+function classificationProgressNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function classificationRunDurationLabel(run) {
+  const startedAt = new Date(run.createdAt).getTime();
+  const finishedAt = run.completedAt ? new Date(run.completedAt).getTime() : Date.now();
+  if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) return '-';
+  const seconds = Math.max(1, Math.round((finishedAt - startedAt) / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} 小时 ${minutes % 60} 分`;
+}
+
+function classificationRunListLabel(values, noun, emptyLabel) {
+  const names = [...new Set(values.filter(Boolean))];
+  if (!names.length) return emptyLabel;
+  if (names.length <= 2) return names.join('、');
+  return `${names.slice(0, 2).join('、')} 等 ${names.length} 个${noun}`;
+}
+
+function classificationRunScopeSummary(run) {
+  const scope = run.scope || {};
+  const conversations = Array.isArray(scope.conversations)
+    ? scope.conversations.map((entry) => entry.displayName || entry.username)
+    : (scope.sources || []).flatMap((source) => source.conversationUsernames || []);
+  const senders = Array.isArray(scope.senders)
+    ? scope.senders.map((entry) => entry.displayName || entry.wxid)
+    : [];
+  const days = Array.isArray(scope.days) ? scope.days.map((entry) => entry.day) : [];
+  let dateLabel = classificationRunListLabel(days, '日期', '全部日期');
+  if (!days.length && scope.day) dateLabel = scope.day;
+  else if (!days.length && (scope.dateFrom || scope.dateTo)) {
+    dateLabel = `${scope.dateFrom || '最早'} 至 ${scope.dateTo || '最新'}`;
+  }
+  return {
+    dateLabel,
+    conversationLabel: classificationRunListLabel(conversations, '群聊', '未记录群聊'),
+    senderLabel: classificationRunListLabel(senders, '成员', '未记录成员'),
+  };
+}
+
+function renderClassificationTaskLog() {
+  if (!viewerClassificationTaskLog) return;
+  viewerClassificationTaskLog.replaceChildren();
+  if (!viewerClassificationTaskLogs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'classification-task-log-empty';
+    empty.textContent = '暂无日志';
+    viewerClassificationTaskLog.appendChild(empty);
+    return;
+  }
+
+  for (const entry of viewerClassificationTaskLogs) {
+    const row = document.createElement('div');
+    row.className = `classification-task-log-entry${entry.state ? ` ${entry.state}` : ''}`;
+    const time = document.createElement('time');
+    const createdAt = new Date(entry.createdAt);
+    if (!Number.isNaN(createdAt.getTime())) {
+      time.dateTime = createdAt.toISOString();
+      time.textContent = createdAt.toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      });
+    } else {
+      time.textContent = '--:--:--';
+    }
+    const message = document.createElement('span');
+    message.textContent = entry.message;
+    row.append(time, message);
+    viewerClassificationTaskLog.appendChild(row);
+  }
+  viewerClassificationTaskLog.scrollTop = viewerClassificationTaskLog.scrollHeight;
+}
+
+function ensureClassificationTaskLogDataset() {
+  if (viewerClassificationLogDatasetDir === viewerDatasetDir) return;
+  viewerClassificationLogDatasetDir = viewerDatasetDir;
+  viewerClassificationTaskLogs = [];
+  viewerLoggedClassificationRunStates.clear();
+  renderClassificationTaskLog();
+}
+
+function appendClassificationTaskLog(message, state = '', createdAt = new Date().toISOString()) {
+  if (!message) return;
+  ensureClassificationTaskLogDataset();
+  const previous = viewerClassificationTaskLogs.at(-1);
+  if (previous?.message === message && previous?.state === state) return;
+  viewerClassificationTaskLogs.push({ message, state, createdAt });
+  if (viewerClassificationTaskLogs.length > CLASSIFICATION_TASK_LOG_LIMIT) {
+    viewerClassificationTaskLogs.splice(0, viewerClassificationTaskLogs.length - CLASSIFICATION_TASK_LOG_LIMIT);
+  }
+  renderClassificationTaskLog();
+}
+
+function classificationTaskRunLabel(run) {
+  const runId = String(run?.runId || '');
+  return runId ? runId.slice(-8) : '未知任务';
+}
+
+function logClassificationRunState(run) {
+  if (!run?.runId) return;
+  ensureClassificationTaskLogDataset();
+  const status = String(run.status || 'running');
+  const total = classificationProgressNumber(run.total);
+  const completed = classificationProgressNumber(run.completed);
+  const failed = classificationProgressNumber(run.failed);
+  const current = Math.min(total, Math.max(classificationProgressNumber(run.current), completed + failed));
+  const key = `${run.runId}:${status}:${current}:${completed}:${failed}`;
+  if (viewerLoggedClassificationRunStates.has(key)) return;
+
+  const label = classificationTaskRunLabel(run);
+  let message = `任务 ${label} 正在识别 · ${current}/${total}`;
+  let state = '';
+  if (status === 'completed') {
+    message = `任务 ${label} 已完成 · 成功 ${completed}，失败 ${failed}`;
+    state = 'ready';
+  } else if (status === 'completed_with_errors') {
+    message = `任务 ${label} 部分完成 · 成功 ${completed}，失败 ${failed}`;
+    state = 'warning';
+  } else if (status === 'failed') {
+    message = `任务 ${label} 失败 · ${run.error || '未返回错误详情'}`;
+    state = 'warning';
+  } else if (status === 'cancelled') {
+    message = `任务 ${label} 已取消 · 已处理 ${current}/${total}`;
+  }
+
+  appendClassificationTaskLog(message, state, run.completedAt || run.createdAt);
+  viewerLoggedClassificationRunStates.add(key);
+}
+
+function seedClassificationTaskLogs(runs) {
+  ensureClassificationTaskLogDataset();
+  [...(runs || [])]
+    .sort((left, right) => String(left.createdAt || '').localeCompare(String(right.createdAt || '')))
+    .slice(-CLASSIFICATION_TASK_LOG_LIMIT)
+    .forEach((run) => logClassificationRunState(run));
+}
+
+function classificationCodexEventLogMessage(event) {
+  const detail = event?.event || {};
+  if (detail.type === 'thread.started') return 'Codex 会话已建立';
+  if (detail.type === 'turn.started') return 'Codex 正在分析当前批次';
+  if (detail.type === 'turn.completed') return 'Codex 已完成当前批次分析';
+  if (detail.type === 'error') return detail.message || 'Codex 返回错误';
+  return '';
+}
+
+function createClassificationTaskAction(label, handler, tone = '') {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `classification-task-action${tone ? ` ${tone}` : ''}`;
+  button.textContent = label;
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handler();
+  });
+  return button;
+}
+
+function renderClassificationTaskProgress() {
+  if (!viewerClassificationTaskCount || !viewerClassificationTaskList) return;
+  const runs = [...viewerClassificationRuns].sort((left, right) =>
+    String(right.createdAt || '').localeCompare(String(left.createdAt || ''))
+  );
+  viewerClassificationTaskCount.textContent = runs.length ? `共 ${runs.length} 次` : '暂无任务';
+  if (viewerCancelClassificationBtn) {
+    viewerCancelClassificationBtn.disabled = !runs.some((run) => run.status === 'running');
+  }
+  viewerClassificationTaskList.replaceChildren();
+  if (!runs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'classification-task-empty';
+    empty.textContent = '暂无识别任务';
+    viewerClassificationTaskList.appendChild(empty);
+    return;
+  }
+
+  for (const run of runs) {
+    const status = String(run.status || 'running');
+    const total = classificationProgressNumber(run.total);
+    const completed = classificationProgressNumber(run.completed);
+    const failed = classificationProgressNumber(run.failed);
+    const current = Math.min(total, Math.max(
+      classificationProgressNumber(run.current),
+      completed + failed
+    ));
+    const timestamp = classificationRunTimestamp(run);
+
+    const row = document.createElement('details');
+    row.className = `classification-task-row ${classificationRunStatusClass(status)}`;
+    row.dataset.runId = run.runId;
+    row.open = viewerExpandedClassificationRuns.has(run.runId);
+    row.addEventListener('toggle', () => {
+      if (row.open) viewerExpandedClassificationRuns.add(run.runId);
+      else viewerExpandedClassificationRuns.delete(run.runId);
+    });
+
+    const summary = document.createElement('summary');
+    summary.className = 'classification-task-summary';
+
+    const meta = document.createElement('div');
+    meta.className = 'classification-task-meta';
+    const name = document.createElement('strong');
+    name.textContent = timestamp;
+    const state = document.createElement('span');
+    state.className = 'classification-task-state';
+    state.textContent = classificationRunStatusLabel(status);
+    meta.append(name, state);
+
+    const meter = document.createElement('div');
+    meter.className = 'classification-task-meter';
+    const progress = document.createElement('progress');
+    progress.max = Math.max(total, 1);
+    progress.value = current;
+    progress.setAttribute('aria-label', `${timestamp} 识别进度`);
+    const count = document.createElement('span');
+    count.className = 'classification-task-count';
+    count.textContent = `${current}/${total} 已处理`;
+    meter.append(progress, count);
+
+    const result = document.createElement('span');
+    result.className = 'classification-task-result';
+    result.textContent = `成功 ${completed} · 失败 ${failed}`;
+    const resultLine = document.createElement('div');
+    resultLine.className = 'classification-task-result-line';
+    resultLine.appendChild(result);
+    const retryConfig = classificationRunRetryConfig(run);
+    if (retryConfig) {
+      let retryButton;
+      retryButton = createClassificationTaskAction(retryConfig.label, () => {
+        retryButton.disabled = true;
+        retryButton.textContent = '提交中';
+        void retryClassificationRun(run, retryConfig.failedOnly).finally(() => {
+          if (!retryButton.isConnected) return;
+          retryButton.disabled = false;
+          retryButton.textContent = retryConfig.label;
+        });
+      }, 'retry');
+      retryButton.title = retryConfig.title;
+      resultLine.appendChild(retryButton);
+    }
+    summary.append(meta, meter, resultLine);
+    row.appendChild(summary);
+
+    const details = document.createElement('div');
+    details.className = 'classification-task-details';
+    const targetBatchSize = classificationProgressNumber(run.targetBatchSize);
+    const batchCount = classificationProgressNumber(run.batchCount);
+    const activeBatch = batchCount && targetBatchSize
+      ? Math.min(batchCount, status === 'running' && current < total
+        ? Math.floor(current / targetBatchSize) + 1
+        : Math.ceil(current / targetBatchSize))
+      : 0;
+    const stats = document.createElement('div');
+    stats.className = 'classification-task-stats';
+    for (const [label, value] of [
+      ['任务图片', `${total} 张`],
+      ['已处理', `${current} 张`],
+      ['识别成功', `${completed} 张`],
+      ['识别失败', `${failed} 张`],
+      ['当前批次', batchCount ? `${activeBatch}/${batchCount}` : '-'],
+      ['运行时间', classificationRunDurationLabel(run)],
+    ]) {
+      const stat = document.createElement('div');
+      const statLabel = document.createElement('span');
+      statLabel.textContent = label;
+      const statValue = document.createElement('strong');
+      statValue.textContent = value;
+      stat.append(statLabel, statValue);
+      stats.appendChild(stat);
+    }
+    details.appendChild(stats);
+
+    const scope = classificationRunScopeSummary(run);
+    const scopeLine = document.createElement('div');
+    scopeLine.className = 'classification-task-scope';
+    for (const [label, value] of [
+      ['日期', scope.dateLabel],
+      ['群聊', scope.conversationLabel],
+      ['成员', scope.senderLabel],
+    ]) {
+      const item = document.createElement('span');
+      const itemLabel = document.createElement('strong');
+      itemLabel.textContent = `${label}：`;
+      item.append(itemLabel, document.createTextNode(value));
+      scopeLine.appendChild(item);
+    }
+    details.appendChild(scopeLine);
+    if (run.error) {
+      const error = document.createElement('p');
+      error.className = 'classification-task-error';
+      error.textContent = run.error;
+      details.appendChild(error);
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'classification-task-footer';
+    const identity = document.createElement('code');
+    identity.textContent = run.runId;
+    const actions = document.createElement('div');
+    actions.className = 'classification-task-actions';
+    actions.appendChild(createClassificationTaskAction('查看任务结果', () => {
+      void showClassificationRunImages(run);
+    }));
+    if (status === 'running') {
+      let cancelButton;
+      cancelButton = createClassificationTaskAction('取消任务', () => {
+        cancelButton.disabled = true;
+        cancelButton.textContent = '取消中';
+        void requestClassificationCancellation(run).finally(() => {
+          if (!cancelButton.isConnected) return;
+          cancelButton.disabled = false;
+          cancelButton.textContent = '取消任务';
+        });
+      }, 'danger');
+      actions.appendChild(cancelButton);
+    }
+    footer.append(identity, actions);
+    details.appendChild(footer);
+    row.appendChild(details);
+    viewerClassificationTaskList.appendChild(row);
+  }
+}
+
+function updateClassificationRunProgress(event) {
+  if (!event?.runId) return;
+  const previous = viewerClassificationRuns.find((run) => run.runId === event.runId) || {};
+  const total = classificationProgressNumber(event.total, classificationProgressNumber(previous.total));
+  const completed = classificationProgressNumber(event.completed, classificationProgressNumber(previous.completed));
+  const failed = classificationProgressNumber(event.failed, classificationProgressNumber(previous.failed));
+  const isDone = event.phase === 'classification-done';
+  const next = {
+    ...previous,
+    ...event,
+    runId: event.runId,
+    createdAt: event.createdAt || previous.createdAt || new Date().toISOString(),
+    total,
+    completed,
+    failed,
+    current: isDone
+      ? Math.min(total, completed + failed)
+      : classificationProgressNumber(event.current, classificationProgressNumber(previous.current)),
+  };
+  if (event.phase === 'classification-start' || event.phase === 'classification-batch') next.status = 'running';
+  if (event.phase === 'classification-failed') next.status = event.status || 'failed';
+  viewerClassificationRuns = [
+    next,
+    ...viewerClassificationRuns.filter((run) => run.runId !== event.runId),
+  ];
+  renderClassificationTaskProgress();
+}
+
+function renderClassificationScopeOptions({
+  entries,
+  selection,
+  valueKey,
+  labelKey,
+  noun,
+  step,
+  searchInput,
+  allInput,
+  summary,
+  container,
+  onChange,
+}) {
+  const query = searchInput.value.trim().toLowerCase();
+  const selectedEntries = selection === null
+    ? entries
+    : entries.filter((entry) => selection.has(entry[valueKey]));
+  allInput.checked = selection === null;
+  allInput.indeterminate = selection !== null && selection.size > 0;
+  summary.textContent = selection === null
+    ? `${step} ${noun} · 全部 ${entries.length}`
+    : `${step} ${noun} · ${selection.size ? `${selection.size} 个` : '未选择'}`;
+  summary.title = selectedEntries.map((entry) => entry[labelKey] || entry[valueKey]).join('、');
+  container.replaceChildren();
+  const visibleEntries = entries.filter((entry) => {
+    if (!query) return true;
+    return String(entry[labelKey] || '').toLowerCase().includes(query) ||
+      String(entry[valueKey] || '').toLowerCase().includes(query);
+  });
+  if (!visibleEntries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'classification-scope-empty';
+    empty.textContent = entries.length ? '没有匹配项' : `当前范围没有${noun}`;
+    container.appendChild(empty);
+    return;
+  }
+  for (const entry of visibleEntries) {
+    const value = entry[valueKey];
+    const label = document.createElement('label');
+    label.className = 'classification-scope-option';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = selection === null || selection.has(value);
+    input.addEventListener('change', () => onChange(value, input.checked));
+    const text = document.createElement('span');
+    const name = document.createElement('strong');
+    name.textContent = entry[labelKey] || value;
+    text.appendChild(name);
+    if (Number.isFinite(Number(entry.count))) {
+      const count = document.createElement('small');
+      count.textContent = `${entry.count} 张`;
+      text.appendChild(count);
+    }
+    label.append(input, text);
+    container.appendChild(label);
+  }
+}
+
+function updateClassificationGroupSelection(username, checked) {
+  const allUsernames = viewerClassificationConversations.map((entry) => entry.username);
+  const next = viewerSelectedClassificationGroups === null
+    ? new Set(allUsernames)
+    : new Set(viewerSelectedClassificationGroups);
+  if (checked) next.add(username);
+  else next.delete(username);
+  viewerSelectedClassificationGroups = allUsernames.length && next.size === allUsernames.length ? null : next;
+  viewerSelectedClassificationSenders = null;
+  renderClassificationScopePickers();
+  scheduleClassificationReload();
+}
+
+function updateClassificationSenderSelection(wxid, checked) {
+  const allWxids = viewerClassificationSenders.map((entry) => entry.wxid);
+  const next = viewerSelectedClassificationSenders === null
+    ? new Set(allWxids)
+    : new Set(viewerSelectedClassificationSenders);
+  if (checked) next.add(wxid);
+  else next.delete(wxid);
+  viewerSelectedClassificationSenders = allWxids.length && next.size === allWxids.length ? null : next;
+  renderClassificationScopePickers();
+  scheduleClassificationReload();
+}
+
+function renderClassificationScopePickers() {
+  renderClassificationScopeOptions({
+    entries: viewerClassificationConversations,
+    selection: viewerSelectedClassificationGroups,
+    valueKey: 'username',
+    labelKey: 'displayName',
+    noun: '群聊',
+    step: '1',
+    searchInput: viewerClassificationGroupSearch,
+    allInput: viewerClassificationSelectAllGroups,
+    summary: viewerClassificationGroupSummary,
+    container: viewerClassificationGroupOptions,
+    onChange: updateClassificationGroupSelection,
+  });
+  renderClassificationScopeOptions({
+    entries: viewerClassificationSenders,
+    selection: viewerSelectedClassificationSenders,
+    valueKey: 'wxid',
+    labelKey: 'displayName',
+    noun: '群成员',
+    step: '2',
+    searchInput: viewerClassificationSenderSearch,
+    allInput: viewerClassificationSelectAllSenders,
+    summary: viewerClassificationSenderSummary,
+    container: viewerClassificationSenderOptions,
+    onChange: updateClassificationSenderSelection,
+  });
+}
+
 function populateClassificationFilters(result) {
   viewerClassificationConversations = result.manifest?.conversations || [];
+  viewerClassificationSenders = result.senders || [];
+  if (viewerSelectedClassificationGroups !== null) {
+    const available = new Set(viewerClassificationConversations.map((entry) => entry.username));
+    viewerSelectedClassificationGroups = new Set(
+      [...viewerSelectedClassificationGroups].filter((username) => available.has(username))
+    );
+    if (available.size && viewerSelectedClassificationGroups.size === available.size) {
+      viewerSelectedClassificationGroups = null;
+    }
+  }
+  if (viewerSelectedClassificationSenders !== null) {
+    const available = new Set(viewerClassificationSenders.map((entry) => entry.wxid));
+    viewerSelectedClassificationSenders = new Set(
+      [...viewerSelectedClassificationSenders].filter((wxid) => available.has(wxid))
+    );
+    if (available.size && viewerSelectedClassificationSenders.size === available.size) {
+      viewerSelectedClassificationSenders = null;
+    }
+  }
+  renderClassificationScopePickers();
   replaceSelectOptions(
     viewerClassificationDay,
     Object.entries(result.dayCounts || {})
@@ -4719,20 +5385,13 @@ function populateClassificationFilters(result) {
     viewerClassificationDateInitialized = true;
     setClassificationDateRange('latest', { reload: false });
   }
-  replaceSelectOptions(
-    viewerClassificationGroup,
-    result.manifest?.conversations || [],
-    '全部授权群聊',
-    'conversationId',
-    'displayName'
-  );
   replaceSelectOptions(viewerClassificationCategory, jewelryProductCategories, '全部品类');
   replaceSelectOptions(viewerClassificationProcess, jewelryProcesses, '全部工艺');
   replaceSelectOptions(
     viewerClassificationRun,
     (result.runs || []).map((run) => ({
       id: run.runId,
-      name: `${new Date(run.createdAt).toLocaleString('zh-CN')} · ${run.status}`,
+      name: `${new Date(run.createdAt).toLocaleString('zh-CN')} · ${classificationRunStatusLabel(run.status)}`,
     })),
     '全部任务'
   );
@@ -4832,14 +5491,11 @@ async function runSimilaritySearch() {
   viewerSimilarityList.appendChild(loading);
   viewerSimilaritySummary.textContent = '正在使用本地 CLIP 检索';
   const currentFilters = getClassificationFilters();
-  const selectedConversation = viewerClassificationConversations.find((entry) =>
-    entry.conversationId === viewerClassificationGroup.value
-  );
   const allHistory = viewerSimilarityAllHistory.checked;
   const result = await window.exporter.searchJewelrySimilar({
     sources: [{
       datasetDir: viewerDatasetDir,
-      conversationUsernames: selectedConversation ? [selectedConversation.username] : null,
+      conversationUsernames: currentFilters.conversationUsernames,
     }],
     imageId: viewerSimilarityQuery.imageId || null,
     imagePath: viewerSimilarityQuery.imagePath || null,
@@ -5216,21 +5872,7 @@ function renderClassificationItems() {
       event.stopPropagation();
       void selectClassificationImageIds({ ...getClassificationFilters(), day }, selectDay);
     });
-    const classifyDay = document.createElement('button');
-    classifyDay.type = 'button';
-    classifyDay.className = 'classification-day-select';
-    classifyDay.textContent = '识别当天';
-    classifyDay.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      void classifyPendingImages({
-        ...getClassificationFilters(),
-        day,
-        dateFrom: null,
-        dateTo: null,
-      });
-    });
-    heading.append(dayLabel, count, selectDay, classifyDay);
+    heading.append(dayLabel, count, selectDay);
     group.appendChild(heading);
     const dayItems = document.createElement('div');
     dayItems.className = 'classification-day-items';
@@ -5253,6 +5895,15 @@ function renderClassificationItems() {
     viewerClassificationList.appendChild(group);
     if (group.open) void loadClassificationDay(day);
   }
+}
+
+function setClassificationColumns(value, { persist = true } = {}) {
+  const columns = Number(value) === 4 ? 4 : 3;
+  viewerClassificationList.dataset.columns = String(columns);
+  for (const button of viewerClassificationLayout?.querySelectorAll('[data-classification-columns]') || []) {
+    button.setAttribute('aria-pressed', String(Number(button.dataset.classificationColumns) === columns));
+  }
+  if (persist) localStorage.setItem(CLASSIFICATION_COLUMNS_KEY, String(columns));
 }
 
 function renderClassificationDayState(day) {
@@ -5309,11 +5960,21 @@ function syncClassificationSelectionControls() {
   updateClassificationSummary();
 }
 
-async function selectClassificationImageIds(filters, button) {
-  const originalLabel = button.textContent;
+async function selectClassificationImageIds(filters, button, {
+  replace = false,
+  silent = false,
+  workingLabel = '添加中...',
+} = {}) {
+  const originalLabel = button?.textContent || '';
   const loadVersion = viewerClassificationLoadVersion;
-  button.disabled = true;
-  button.textContent = '选择中...';
+  if (replace) {
+    viewerSelectedClassificationImages.clear();
+    syncClassificationSelectionControls();
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = workingLabel;
+  }
   let offset = 0;
   let matched = 0;
   try {
@@ -5339,14 +6000,31 @@ async function selectClassificationImageIds(filters, button) {
       offset += items.length;
     }
     if (!matched) {
-      await showFriendlyError('没有可选图片', '当前范围没有可用于识别的图片。');
+      syncClassificationSelectionControls();
+      if (!silent) await showFriendlyError('没有可选图片', '当前范围没有可用于识别的图片。');
       return;
     }
     syncClassificationSelectionControls();
   } finally {
-    button.disabled = false;
-    button.textContent = originalLabel;
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
   }
+}
+
+function resetClassificationDraftSelection() {
+  viewerSelectedClassificationImages.clear();
+  syncClassificationSelectionControls();
+}
+
+async function refreshAutomaticClassificationDraft() {
+  if (!viewerClassificationAutoCollect.checked) return;
+  await selectClassificationImageIds(
+    getClassificationFilters(),
+    viewerSelectCurrentClassificationBtn,
+    { replace: true, silent: true, workingLabel: '自动收集中...' }
+  );
 }
 
 function updateClassificationSummary() {
@@ -5355,8 +6033,12 @@ function updateClassificationSummary() {
   const needsReview = Number(viewerClassificationStateCounts.needs_review) || 0;
   const classified = Number(viewerClassificationStateCounts.classified) || 0;
   const notJewelry = Number(viewerClassificationStateCounts.not_jewelry) || 0;
+  const selected = viewerSelectedClassificationImages.size;
   viewerClassificationSummary.textContent =
-    `${viewerClassificationTotal} 张图片 · 已加载 ${loaded} · 待复核 ${needsReview} · 已分类 ${classified} · 非珠宝 ${notJewelry} · ${viewerSelectedClassificationImages.size} 张已选择`;
+    `${viewerClassificationTotal} 张筛选结果 · 已加载 ${loaded} · 待复核 ${needsReview} · 已分类 ${classified} · 非珠宝 ${notJewelry} · 待确认任务 ${selected} 张`;
+  viewerCreateClassificationTaskBtn.textContent = `4 确认并开始识别（${selected} 张）`;
+  viewerCreateClassificationTaskBtn.disabled = selected === 0;
+  viewerClearClassificationSelectionBtn.disabled = selected === 0;
 }
 
 function invalidateClassificationReviewCache() {
@@ -5380,6 +6062,8 @@ async function loadClassificationReview({ resetExpanded = false } = {}) {
     return;
   }
   viewerClassificationRuns = result.result.runs || [];
+  seedClassificationTaskLogs(viewerClassificationRuns);
+  renderClassificationTaskProgress();
   viewerClassificationTotal = Number(result.result.total) || 0;
   viewerClassificationStateCounts = result.result.stateCounts || {};
   viewerClassificationDayCounts = result.result.dayCounts || {};
@@ -5402,6 +6086,7 @@ async function loadClassificationReview({ resetExpanded = false } = {}) {
   renderClassificationItems();
   viewerClassificationLoadedDatasetDir = viewerDatasetDir;
   viewerClassificationLoadedFilterSignature = JSON.stringify(getClassificationFilters());
+  await refreshAutomaticClassificationDraft();
 }
 
 async function openClassificationReview() {
@@ -5419,6 +6104,14 @@ async function openClassificationReview() {
     viewerClassificationDay.value = '';
     viewerClassificationDateFrom.value = '';
     viewerClassificationDateTo.value = '';
+    viewerClassificationConversations = [];
+    viewerClassificationSenders = [];
+    viewerSelectedClassificationGroups = null;
+    viewerSelectedClassificationSenders = null;
+    viewerSelectedClassificationImages.clear();
+    viewerClassificationAutoCollect.checked = false;
+    viewerClassificationGroupSearch.value = '';
+    viewerClassificationSenderSearch.value = '';
   }
   viewerClassificationPanel.classList.remove('hidden');
   if (
@@ -5463,7 +6156,7 @@ async function applyBatchProcesses() {
 }
 
 async function submitPreparedClassification(preparation) {
-  if (!(await ensureJewelryCodexConsent(preparation))) return;
+  if (!(await ensureJewelryCodexConsent(preparation))) return false;
   const result = await window.exporter.retryJewelryClassification({
     datasetDir: viewerDatasetDir,
     imageIds: preparation.imageIds,
@@ -5471,10 +6164,15 @@ async function submitPreparedClassification(preparation) {
     filters: preparation.filters || {},
   });
   if (!result.ok) {
+    appendClassificationTaskLog(`提交识别任务失败 · ${result.error || '未知错误'}`, 'warning');
     await showFriendlyError('提交失败', result.error || '无法创建 Codex 分类任务');
-    return;
+    return false;
   }
+  viewerClassificationAutoCollect.checked = false;
+  resetClassificationDraftSelection();
+  appendClassificationTaskLog(`已提交识别任务 · ${preparation.targetCount} 张`, 'ready');
   setViewerSyncStatus('已提交 ' + preparation.targetCount + ' 张图片进行识别', 'syncing');
+  return true;
 }
 
 async function prepareClassificationRequest(imageIds, eligibleStates = null, filters = getClassificationFilters()) {
@@ -5489,25 +6187,85 @@ async function prepareClassificationRequest(imageIds, eligibleStates = null, fil
     return null;
   }
   if (!response.result?.targetCount) {
-    await showFriendlyError('没有待识别图片', '当前日期和群聊范围内没有可提交的真实图片。');
+    await showFriendlyError('没有待识别图片', '待确认任务中没有可提交的真实图片。');
     return null;
   }
   return { ...response.result, filters };
 }
 
-async function classifyPendingImages(filters = getClassificationFilters()) {
-  const preparation = await prepareClassificationRequest(null, ['pending', 'failed'], filters);
+async function createSelectedClassificationTask() {
+  const imageIds = [...viewerSelectedClassificationImages];
+  if (!imageIds.length) {
+    await showFriendlyError('未选择图片', '请先把图片添加到待确认任务。');
+    return;
+  }
+  const preparation = await prepareClassificationRequest(imageIds, null, {});
   if (preparation) await submitPreparedClassification(preparation);
 }
 
-async function retrySelectedClassifications() {
-  const imageIds = [...viewerSelectedClassificationImages];
+async function showClassificationRunImages(run) {
+  viewerClassificationAutoCollect.checked = false;
+  viewerSelectedClassificationGroups = null;
+  viewerSelectedClassificationSenders = null;
+  viewerClassificationState.value = '';
+  viewerClassificationCategory.value = '';
+  viewerClassificationProcess.value = '';
+  viewerClassificationRun.value = run.runId;
+  setClassificationDateRange('all', { reload: false });
+  renderClassificationScopePickers();
+  await loadClassificationReview({ resetExpanded: true });
+}
+
+async function retryClassificationRun(run, failedOnly) {
+  const imageIds = Array.isArray(run.imageIds) ? run.imageIds : [];
   if (!imageIds.length) {
-    await showFriendlyError('未选择图片', '请先勾选要重试识别的图片。');
+    await showFriendlyError('任务详情不完整', '该历史任务没有保存图片列表，无法重新识别。');
     return;
   }
-  const preparation = await prepareClassificationRequest(imageIds, null, getClassificationFilters());
-  if (preparation) await submitPreparedClassification(preparation);
+  const label = classificationTaskRunLabel(run);
+  appendClassificationTaskLog(`正在准备重试任务 ${label}`);
+  const preparation = await prepareClassificationRequest(
+    imageIds,
+    failedOnly
+      ? ['failed']
+      : run.status === 'cancelled' ? ['pending', 'failed'] : null,
+    {}
+  );
+  if (preparation && await submitPreparedClassification(preparation)) {
+    appendClassificationTaskLog(`任务 ${label} 已提交重试`, 'ready');
+  }
+}
+
+async function requestClassificationCancellation(run = null) {
+  const targetRun = run || [...viewerClassificationRuns]
+    .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))
+    .find((item) => item.status === 'running');
+  if (!targetRun) {
+    appendClassificationTaskLog('没有正在运行的识别任务');
+    setViewerSyncStatus('没有正在运行的识别任务', 'idle');
+    return false;
+  }
+
+  const label = classificationTaskRunLabel(targetRun);
+  appendClassificationTaskLog(`正在取消任务 ${label}`);
+  const response = await window.exporter.cancelJewelryClassification({
+    datasetDir: viewerDatasetDir,
+    runId: targetRun.runId,
+  });
+  if (!response.ok) {
+    appendClassificationTaskLog(`取消任务 ${label} 失败 · ${response.error || '未知错误'}`, 'warning');
+    await showFriendlyError('取消任务失败', response.error || '无法取消当前识别任务。');
+    return false;
+  }
+
+  const updatedRun = response.result?.run;
+  if (updatedRun) {
+    updateClassificationRunProgress({ ...updatedRun, phase: 'classification-done' });
+    logClassificationRunState(updatedRun);
+  }
+  const message = response.result?.cancelled ? `已取消任务 ${label}` : `任务 ${label} 已经结束`;
+  setViewerSyncStatus(message, 'idle');
+  return true;
 }
 
 document.getElementById('pickWxDir').addEventListener('click', () => {
@@ -5726,23 +6484,45 @@ viewerNoteUpdateBtn?.addEventListener('click', () => void startViewerNoteHydrati
 viewerOpenReviewBtn?.addEventListener('click', () => void openClassificationReview());
 viewerCloseReviewBtn?.addEventListener('click', closeClassificationReview);
 viewerApplyBatchProcessesBtn?.addEventListener('click', () => void applyBatchProcesses());
+setClassificationColumns(localStorage.getItem(CLASSIFICATION_COLUMNS_KEY), { persist: false });
+for (const button of viewerClassificationLayout?.querySelectorAll('[data-classification-columns]') || []) {
+  button.addEventListener('click', () => setClassificationColumns(button.dataset.classificationColumns));
+}
 viewerSelectCurrentClassificationBtn?.addEventListener('click', () => {
   void selectClassificationImageIds(getClassificationFilters(), viewerSelectCurrentClassificationBtn);
 });
-viewerClearClassificationSelectionBtn?.addEventListener('click', () => {
-  viewerSelectedClassificationImages.clear();
-  syncClassificationSelectionControls();
+viewerClearClassificationSelectionBtn?.addEventListener('click', resetClassificationDraftSelection);
+viewerCreateClassificationTaskBtn?.addEventListener('click', () => void createSelectedClassificationTask());
+viewerClassificationAutoCollect?.addEventListener('change', () => {
+  if (viewerClassificationAutoCollect.checked) void refreshAutomaticClassificationDraft();
 });
-viewerRetryClassificationBtn?.addEventListener('click', () => void classifyPendingImages());
-viewerRetrySelectedClassificationBtn?.addEventListener('click', () => void retrySelectedClassifications());
+viewerClassificationGroupSearch?.addEventListener('input', renderClassificationScopePickers);
+viewerClassificationSenderSearch?.addEventListener('input', renderClassificationScopePickers);
+viewerClassificationSelectAllGroups?.addEventListener('change', () => {
+  viewerSelectedClassificationGroups = viewerClassificationSelectAllGroups.checked ? null : new Set();
+  viewerSelectedClassificationSenders = null;
+  renderClassificationScopePickers();
+  scheduleClassificationReload();
+});
+viewerClassificationSelectAllSenders?.addEventListener('change', () => {
+  viewerSelectedClassificationSenders = viewerClassificationSelectAllSenders.checked ? null : new Set();
+  renderClassificationScopePickers();
+  scheduleClassificationReload();
+});
+for (const picker of [viewerClassificationGroupPicker, viewerClassificationSenderPicker]) {
+  picker?.addEventListener('toggle', () => {
+    if (!picker.open) return;
+    const other = picker === viewerClassificationGroupPicker
+      ? viewerClassificationSenderPicker
+      : viewerClassificationGroupPicker;
+    other?.removeAttribute('open');
+  });
+}
 viewerUploadSimilarityBtn?.addEventListener('click', () => void chooseSimilarityQueryImage());
 viewerCloseSimilarityBtn?.addEventListener('click', closeSimilarityResults);
 viewerRefreshSimilarityBtn?.addEventListener('click', () => void runSimilaritySearch());
 viewerSimilarityAllHistory?.addEventListener('change', () => void runSimilaritySearch());
-viewerCancelClassificationBtn?.addEventListener('click', async () => {
-  await window.exporter.cancelJewelryClassification();
-  setViewerSyncStatus('已请求取消图片识别', 'idle');
-});
+viewerCancelClassificationBtn?.addEventListener('click', () => void requestClassificationCancellation());
 viewerLightboxClose?.addEventListener('click', closeViewerLightbox);
 viewerLightbox?.addEventListener('click', (event) => {
   if (event.target === viewerLightbox) closeViewerLightbox();
@@ -5801,7 +6581,6 @@ viewerBatchNoProcess?.addEventListener('change', () => {
 });
 for (const filter of [
   viewerClassificationState,
-  viewerClassificationGroup,
   viewerClassificationCategory,
   viewerClassificationProcess,
   viewerClassificationRun,
@@ -5834,11 +6613,14 @@ viewerClassificationApplyDatesBtn?.addEventListener('click', async () => {
   updateClassificationRangeButtons();
   scheduleClassificationReload();
 });
-viewerClassificationSender?.addEventListener('input', scheduleClassificationReload);
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   if (!viewerLightbox.classList.contains('hidden')) closeViewerLightbox();
   else if (!viewerSimilarityPanel.classList.contains('hidden')) closeSimilarityResults();
+  else if (viewerClassificationGroupPicker?.open || viewerClassificationSenderPicker?.open) {
+    viewerClassificationGroupPicker?.removeAttribute('open');
+    viewerClassificationSenderPicker?.removeAttribute('open');
+  }
   else if (!viewerClassificationPanel.classList.contains('hidden')) closeClassificationReview();
   else if (viewerIsOpen) closeRecordViewer();
 });
@@ -5891,17 +6673,43 @@ window.exporter.onJewelryProgress((event) => {
     viewerSimilaritySummary.textContent =
       '正在建立本地向量 · 新增 ' + event.indexed + ' · 复用 ' + event.reused + ' · 跳过 ' + event.skipped;
   } else if (event.phase === 'classification-start') {
+    if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
+    updateClassificationRunProgress(event);
+    logClassificationRunState(event);
     invalidateClassificationReviewCache();
     setViewerSyncStatus(`开始识别 ${event.total} 张图片`, 'syncing');
   } else if (event.phase === 'classification-batch') {
+    if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
+    updateClassificationRunProgress(event);
+    appendClassificationTaskLog(
+      `任务 ${classificationTaskRunLabel(event)} 进度 · ${event.current}/${event.total}，成功 ${event.completed || 0}，失败 ${event.failed || 0}`
+    );
     setViewerSyncStatus(`图片识别 ${event.current}/${event.total}`, 'syncing');
+  } else if (event.phase === 'classification-event') {
+    if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
+    const message = classificationCodexEventLogMessage(event);
+    if (message) appendClassificationTaskLog(`任务 ${classificationTaskRunLabel(event)} · ${message}`);
   } else if (event.phase === 'classification-done') {
+    if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
+    updateClassificationRunProgress(event);
+    logClassificationRunState(event);
     invalidateClassificationReviewCache();
-    setViewerSyncStatus(`图片识别完成 · ${event.completed} 成功，${event.failed} 失败`, event.failed ? 'warning' : 'ready');
-    viewerClassificationState.value = 'codex_results';
+    const cancelled = event.status === 'cancelled';
+    setViewerSyncStatus(
+      cancelled
+        ? `图片识别已取消 · 已处理 ${event.completed + event.failed}/${event.total}`
+        : `图片识别完成 · ${event.completed} 成功，${event.failed} 失败`,
+      cancelled ? 'idle' : event.failed ? 'warning' : 'ready'
+    );
+    if (cancelled) viewerClassificationState.value = '';
+    else viewerClassificationState.value = 'codex_results';
     viewerClassificationRun.value = '';
     if (!viewerClassificationPanel.classList.contains('hidden')) void loadClassificationReview({ resetExpanded: true });
   } else if (event.phase === 'classification-failed') {
+    if (event.datasetDir && event.datasetDir !== viewerDatasetDir) return;
+    updateClassificationRunProgress(event);
+    if (event.runId) logClassificationRunState(event);
+    else appendClassificationTaskLog(event.error || '图片识别失败', 'warning');
     invalidateClassificationReviewCache();
     setViewerSyncStatus(event.error || '图片识别失败', 'warning');
     if (!viewerClassificationPanel.classList.contains('hidden')) void loadClassificationReview();

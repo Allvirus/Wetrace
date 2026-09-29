@@ -9,7 +9,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>微迹 Wetrace</title>
     <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260728-6" />
+    <link rel="stylesheet" href="viewer.css?v=20260806-2" />
   </head>
   <body>
     <div class="app">
@@ -34,75 +34,53 @@
         <button type="button" class="step legacy-export-flow" data-step="5" aria-hidden="true"><span>5</span> 完成</button>
       </nav>
 
-      <!-- Step 1: Welcome -->
+      <!-- Step 1: Overview -->
       <section id="step1Panel" class="panel">
         <div class="card welcome-card">
-          <h2>欢迎使用微迹</h2>
-            <p class="welcome-lead">查看不信 PC 版群聊记录，并自动保存为本地 SQLite 与图片数据集。</p>
-
-          <div class="info-block privacy-block">
-            <h3>隐私说明</h3>
-            <ul class="info-list">
-              <li>读取与 SQLite 存储在本地完成；只有启用 Codex 图片分类时，才会在确认后提交图片及上下文</li>
-              <li>所有读写操作仅针对你电脑上的不信数据目录和数据集文件夹</li>
-              <li>我们不会收集任何个人数据或聊天内容</li>
-            </ul>
-          </div>
+          <h2>开始使用</h2>
 
           <div class="info-block">
             <h3>工作原理</h3>
-            <ul class="info-list">
+            <ol class="guide-steps">
               <li><strong>读取本地数据</strong> — 从 <code>xwechat_files</code> 账号目录读取加密的 SQLite 数据库</li>
-              <li><strong>获取解密密钥</strong> — 首次使用时在本机捕获密钥；完成后密钥与解密结果保存在本地，无需每次重复</li>
-              <li><strong>读取与保存</strong> — 解密后查看群聊记录，并将选定消息和图片自动写入本地数据集</li>
-            </ul>
-            <details class="disclaimer-details">
-              <summary>不同不信版本如何获取密钥？</summary>
-              <div class="disclaimer-body">
-                <p>工具会自动识别不信版本并选用对应方式，无需手动选择。</p>
-                <ul>
-                  <li><strong>4.1.9 及更早</strong> — 登录后密钥在进程内存中，扫描已登录的不信进程定位</li>
-                  <li><strong>4.1.10 及之后</strong> — 密钥仅在登录瞬间出现，通过内置 DLL Hook 拦截；扫描时会提示何时点击「登录」</li>
-                </ul>
-                <p>两种方式均在本机完成；解密后的数据库保存在账号目录的 <code>db_storage_decrypted</code> 中，由你完全控制。</p>
-              </div>
-            </details>
+              <li><strong>在本机解密</strong> — 自动识别版本并获取密钥，密钥和解密数据库只保存在本地</li>
+              <li><strong>按需保存群聊</strong> — 仅在确认读取群聊后，将所选范围的消息和图片写入当前账号的数据目录</li>
+              <li><strong>识别并整理图片</strong> — 仅在主动发起并确认后使用 Codex 分类，结果写回数据集并按日期、分类整理</li>
+            </ol>
           </div>
 
           <div class="info-block">
-            <h3>确认读取后自动保存</h3>
-            <p class="hint">当前账号生成的数据库、群聊记录、图片和分类结果全部保存在这个目录</p>
+            <h3>生成内容与目录结构</h3>
+            <p>每个账号使用独立的数据目录，主要文件和分类结果如下：</p>
             <div class="output-preview">
               <div class="output-tree">
-                <code>数据集/</code>
-                <code>├── dataset.db — 账号、扫描索引、保存范围、分类体系与任务</code>
-                <code>├── runtime/ — 解密数据库、密钥缓存与群聊读取库</code>
-                <code>├── conversations/ — 每群独立 SQLite，保存消息、图片记录和注解</code>
-                <code>└── media/ — 按群聊保存的本地图片文件</code>
+                <code>数据目录/</code>
+                <code>├── dataset.db — 账号、保存范围、分类任务与结果索引</code>
+                <code>├── runtime/</code>
+                <code>│   ├── db_storage_decrypted/ — 本地解密数据库</code>
+                <code>│   └── group-records.db — 群聊读取数据库</code>
+                <code>├── conversations/</code>
+                <code>│   └── &lt;群聊 ID&gt;.db — 每群独立 SQLite，保存消息、图片记录和人工标注</code>
+                <code>├── media/&lt;群聊 ID&gt;/ — 群聊原始图片</code>
+                <code>├── classification/runs/ — 每次图片分类任务结果</code>
+                <code>└── classified-images/&lt;日期&gt;/&lt;分类&gt;/ — 按分类整理的图片</code>
               </div>
             </div>
           </div>
 
-          <details class="disclaimer-details">
-            <summary>免责声明</summary>
-            <div class="disclaimer-body">
-              <p>本工具为第三方开源工具，<strong>仅供个人学习、研究和技术交流</strong>，与腾讯不信无任何关联。使用前请确认：</p>
-              <ul>
-                <li>你保存的聊天记录<strong>仅供个人备份与合法查阅</strong>，请遵守相关法律法规</li>
-                <li>请勿将本工具用于窃取他人隐私、未经授权访问他人账号等非法用途</li>
-                <li>解密过程需要读取不信本地数据库，请确保你<strong>有权访问</strong>该账号数据（即账号为你本人所有）</li>
-                <li>因使用本工具产生的任何后果（包括数据丢失、账号异常、法律纠纷），<strong>由使用者自行承担</strong></li>
-                <li>建议于下载后 24 小时内删除</li>
-              </ul>
-            </div>
-          </details>
-
-          <label class="field checkbox-field disclaimer-check">
-            <input id="disclaimerAccepted" type="checkbox" />
-            <span>我已阅读并理解上述说明，同意在本地使用本工具</span>
-          </label>
-
-          <p class="hint welcome-footnote">遇到扫描失败？程序会自动保存经过脱敏的诊断日志；分享前仍应检查其中是否包含敏感信息。</p>
+          <div class="info-block">
+            <h3>使用方法</h3>
+            <ol class="guide-steps">
+              <li>点击「开始使用」，选择 <code>xwechat_files</code> 目录、不信账号和该账号的数据目录</li>
+              <li>点击「扫描会话」；首次使用时按提示登录不信，等待本机解密完成</li>
+              <li>进入群聊并确认读取，选择成员和日期范围，消息与图片会自动保存</li>
+              <li>需要图片分类时，打开「图片识别与分类」，选择范围进行识别并复核结果</li>
+            </ol>
+            <label class="field checkbox-field disclaimer-check">
+              <input id="disclaimerAccepted" type="checkbox" />
+              <span>我确认仅处理本人有权访问的账号数据，并在本地使用本工具</span>
+            </label>
+          </div>
 
           <div class="actions">
             <button id="welcomeNextBtn" class="btn primary" type="button" disabled>开始使用</button>
@@ -612,14 +590,57 @@
             </div>
           </div>
           <div class="classification-actions">
-            <button id="viewerSelectCurrentClassificationBtn" class="btn secondary" type="button">全选当前内容</button>
-            <button id="viewerClearClassificationSelectionBtn" class="viewer-icon-btn" type="button" title="清空选择" aria-label="清空选择">×</button>
-            <button id="viewerRetryClassificationBtn" class="btn primary" type="button">识别当前日期范围</button>
-            <button id="viewerRetrySelectedClassificationBtn" class="btn secondary" type="button">识别所选</button>
             <button id="viewerUploadSimilarityBtn" class="btn secondary" type="button">上传查询图</button>
-            <button id="viewerCancelClassificationBtn" class="btn secondary" type="button">取消识别</button>
+            <button id="viewerCancelClassificationBtn" class="btn secondary" type="button" disabled>取消识别</button>
           </div>
         </header>
+        <aside id="viewerClassificationTasks" class="classification-task-progress" aria-label="识别任务进度" aria-live="polite">
+          <div class="classification-task-progress-head">
+            <strong>识别任务进度</strong>
+            <span id="viewerClassificationTaskCount">暂无任务</span>
+          </div>
+          <div id="viewerClassificationTaskList" class="classification-task-list">
+            <div class="classification-task-empty">暂无识别任务</div>
+          </div>
+          <section class="classification-task-log-section" aria-label="任务日志">
+            <div class="classification-task-log-head">
+              <strong>任务日志</strong>
+              <span>最近 100 条</span>
+            </div>
+            <div id="viewerClassificationTaskLog" class="classification-task-log" role="log">
+              <div class="classification-task-log-empty">暂无日志</div>
+            </div>
+          </section>
+        </aside>
+        <section class="classification-scope-bar" aria-label="待确认识别任务">
+          <strong class="classification-scope-title">待确认任务</strong>
+          <div class="classification-scope-pickers">
+            <details id="viewerClassificationGroupPicker" class="classification-scope-picker">
+              <summary id="viewerClassificationGroupSummary">1 群聊 · 全部</summary>
+              <div class="classification-scope-popover">
+                <input id="viewerClassificationGroupSearch" type="search" placeholder="搜索群聊" aria-label="搜索群聊" />
+                <label class="classification-scope-all"><input id="viewerClassificationSelectAllGroups" type="checkbox" checked />全部授权群聊</label>
+                <div id="viewerClassificationGroupOptions" class="classification-scope-options"></div>
+              </div>
+            </details>
+            <details id="viewerClassificationSenderPicker" class="classification-scope-picker">
+              <summary id="viewerClassificationSenderSummary">2 群成员 · 全部</summary>
+              <div class="classification-scope-popover">
+                <input id="viewerClassificationSenderSearch" type="search" placeholder="搜索群成员" aria-label="搜索群成员" />
+                <label class="classification-scope-all"><input id="viewerClassificationSelectAllSenders" type="checkbox" checked />全部群成员</label>
+                <div id="viewerClassificationSenderOptions" class="classification-scope-options"></div>
+              </div>
+            </details>
+          </div>
+          <label class="viewer-switch classification-auto-collect" title="按当前日期、群聊、成员和筛选条件自动更新待确认图片">
+            <input id="viewerClassificationAutoCollect" type="checkbox" />
+            <span aria-hidden="true"></span>
+            自动收集筛选结果
+          </label>
+          <button id="viewerSelectCurrentClassificationBtn" class="btn secondary" type="button">3 添加筛选图片</button>
+          <button id="viewerClearClassificationSelectionBtn" class="viewer-icon-btn" type="button" title="清空待确认图片" aria-label="清空待确认图片">×</button>
+          <button id="viewerCreateClassificationTaskBtn" class="btn primary" type="button" disabled>4 确认并开始识别（0 张）</button>
+        </section>
         <div class="classification-date-bar" aria-label="识别日期范围">
           <div class="classification-date-presets" role="group" aria-label="日期预设">
             <button type="button" data-classification-range="latest">最近一天</button>
@@ -633,7 +654,6 @@
           <select id="viewerClassificationDay" aria-label="单日"><option value="">按日期范围</option></select>
         </div>
         <div class="classification-filters">
-          <select id="viewerClassificationGroup" aria-label="群聊"><option value="">全部授权群聊</option></select>
           <select id="viewerClassificationState" aria-label="分类状态">
             <option value="" selected>全部状态（待复核优先）</option>
             <option value="codex_results">识别结果（含待复核）</option>
@@ -649,15 +669,20 @@
           <select id="viewerClassificationCategory" aria-label="品类"><option value="">全部品类</option></select>
           <select id="viewerClassificationProcess" aria-label="工艺"><option value="">全部工艺</option></select>
           <select id="viewerClassificationRun" aria-label="分类任务"><option value="">全部任务</option></select>
-          <input id="viewerClassificationSender" type="search" placeholder="搜索发送人" aria-label="搜索发送人" />
         </div>
         <div class="classification-batch-bar">
           <span>批量设置工艺</span>
           <div id="viewerBatchProcesses" class="classification-process-options"></div>
           <label><input id="viewerBatchNoProcess" type="checkbox" />确认无匹配工艺</label>
-          <button id="viewerApplyBatchProcessesBtn" class="btn secondary" type="button">应用到所选图片</button>
+          <div class="classification-batch-actions">
+            <div id="viewerClassificationLayout" class="classification-layout-toggle" role="group" aria-label="图片展示列数">
+              <button type="button" data-classification-columns="3" aria-pressed="true">3 列</button>
+              <button type="button" data-classification-columns="4" aria-pressed="false">4 列</button>
+            </div>
+            <button id="viewerApplyBatchProcessesBtn" class="btn secondary" type="button">应用到所选图片</button>
+          </div>
         </div>
-        <div id="viewerClassificationList" class="classification-grid">
+        <div id="viewerClassificationList" class="classification-grid" data-columns="3">
           <div class="viewer-empty">保存图片后可在这里复核分类</div>
         </div>
       </section>
@@ -687,6 +712,6 @@
       <img id="viewerLightboxImage" alt="聊天图片预览" />
     </div>
 
-    <script src="app.js?v=20260728-6"></script>
+    <script src="app.js?v=20260806-2"></script>
   </body>
 </html>

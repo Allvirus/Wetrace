@@ -79,6 +79,38 @@ test('dataset image files use stable globally scoped image IDs', () => {
   }
 });
 
+test('dataset image lookup reuses one directory listing per resolve pass', () => {
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-dataset-image-cache-'));
+  const conversationId = 'conv_cached';
+  const first = { id: 1, serverId: '101', createTime: 100, type: 3, extra: { kind: 'image' } };
+  const second = { id: 2, serverId: '102', createTime: 200, type: 3, extra: { kind: 'image' } };
+  const mediaDir = path.join(outputDir, 'media', conversationId);
+  const directoryEntryCache = new Map();
+  const originalReadDir = fs.readdirSync;
+  let mediaDirectoryReads = 0;
+  try {
+    fs.mkdirSync(mediaDir, { recursive: true });
+    fs.writeFileSync(path.join(mediaDir, buildDatasetImageId(conversationId, first) + '.png'), 'first');
+    fs.writeFileSync(path.join(mediaDir, buildDatasetImageId(conversationId, second) + '.jpg'), 'second');
+    fs.readdirSync = function cachedReadDir(target, options) {
+      if (path.resolve(target) === path.resolve(mediaDir)) mediaDirectoryReads += 1;
+      return originalReadDir.call(fs, target, options);
+    };
+    assert.equal(
+      findExistingMessageImagePaths(outputDir, conversationId, first, 'dataset', directoryEntryCache).length,
+      1
+    );
+    assert.equal(
+      findExistingMessageImagePaths(outputDir, conversationId, second, 'dataset', directoryEntryCache).length,
+      1
+    );
+    assert.equal(mediaDirectoryReads, 1);
+  } finally {
+    fs.readdirSync = originalReadDir;
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
 test('strict image matching accepts only matching content hashes', () => {
   const buffer = Buffer.from('correct image bytes');
   const md5 = crypto.createHash('md5').update(buffer).digest('hex');

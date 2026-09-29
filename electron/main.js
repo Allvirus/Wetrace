@@ -339,11 +339,11 @@ function queueJewelryClassification({ datasetDir, imageIds, eligibleStates = nul
         eligibleStates,
         filters,
         learningDbPath: getDefaultLearningDbPath(),
-        onProgress: sendJewelryProgress,
+        onProgress: (event) => sendJewelryProgress({ ...event, datasetDir }),
       });
     },
   }).catch((err) => {
-    sendJewelryProgress({ phase: 'classification-failed', error: err.message });
+    sendJewelryProgress({ phase: 'classification-failed', datasetDir, error: err.message });
     throw err;
   });
 }
@@ -729,9 +729,14 @@ handleTrusted('retry-jewelry-classification', async (_event, payload) => {
     return { ok: false, error: err.message };
   }
 });
-handleTrusted('cancel-jewelry-classification', async () => {
-  const { cancelJewelryClassification } = require('../lib/codexJewelryClassifier');
-  return { ok: true, result: cancelJewelryClassification() };
+handleTrusted('cancel-jewelry-classification', async (_event, payload) => {
+  try {
+    if (!payload?.datasetDir || !payload?.runId) throw new Error('请选择要取消的识别任务');
+    const { cancelJewelryClassification } = require('../lib/codexJewelryClassifier');
+    return { ok: true, result: cancelJewelryClassification(payload) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 handleTrusted('search-jewelry-similar', async (_event, payload) => {

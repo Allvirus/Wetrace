@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('exporter', {
   batchSaveJewelryProcesses: (payload) => ipcRenderer.invoke('batch-save-jewelry-processes', payload),
   prepareJewelryClassification: (payload) => ipcRenderer.invoke('prepare-jewelry-classification', payload),
   retryJewelryClassification: (payload) => ipcRenderer.invoke('retry-jewelry-classification', payload),
-  cancelJewelryClassification: () => ipcRenderer.invoke('cancel-jewelry-classification'),
+  cancelJewelryClassification: (payload) => ipcRenderer.invoke('cancel-jewelry-classification', payload),
   searchJewelrySimilar: (payload) => ipcRenderer.invoke('search-jewelry-similar', payload),
   estimateExport: (params) => ipcRenderer.invoke('estimate-export', params),
   recordExportPerf: (sample) => ipcRenderer.invoke('record-export-perf', sample),

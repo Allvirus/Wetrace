@@ -541,6 +541,95 @@ test('classification listing supports incremental batches and filtered date face
   }
 });
 
+test('classification listing combines exact group and sender selections', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-jewelry-scope-'));
+  const groupA = '43697551884@chatroom';
+  const groupB = '98765432100@chatroom';
+  try {
+    const { paths, manifest } = openOrCreateDataset({ rootDir: temp, accountWxid: 'wxid_scope' });
+    manifest.classificationPolicy = {
+      schemaVersion: 1,
+      mode: 'active',
+      allowedConversationUsernames: [groupA, groupB],
+    };
+    const addConversation = (conversationId, username, displayName, senders) => {
+      const messageFile = `conversations/${conversationId}.json`;
+      const annotationFile = `annotations/${conversationId}.json`;
+      const messages = senders.map(({ wxid, name }, index) => {
+        const imageId = `${conversationId}_${wxid}`;
+        const relativePath = `media/${conversationId}/${imageId}.png`;
+        return {
+          messageId: `${conversationId}_msg_${index}`,
+          createTime: index + 1,
+          senderWxid: wxid,
+          senderName: name,
+          text: '',
+          images: [{
+            imageId,
+            absolutePath: resolveInside(temp, relativePath),
+            relativePath,
+            pathStatus: 'missing',
+            sha256: null,
+            conversationId,
+            senderWxid: wxid,
+            senderName: name,
+            createTime: index + 1,
+            context: [],
+          }],
+        };
+      });
+      manifest.conversations.push({ conversationId, username, displayName, messageFile, annotationFile });
+      atomicWriteJson(resolveInside(temp, messageFile), {
+        schemaVersion: 1,
+        conversationId,
+        username,
+        displayName,
+        messages,
+      });
+      atomicWriteJson(resolveInside(temp, annotationFile), { schemaVersion: 1, conversationId, items: {} });
+    };
+    addConversation('scope_a', groupA, 'Group A', [
+      { wxid: 'alice', name: 'Alice' },
+      { wxid: 'bob', name: 'Bob' },
+    ]);
+    addConversation('scope_b', groupB, 'Group B', [
+      { wxid: 'alice', name: 'Alice' },
+      { wxid: 'carol', name: 'Carol' },
+    ]);
+    atomicWriteJson(paths.manifest, manifest);
+
+    const selectedGroup = listDatasetImages({
+      datasetDir: temp,
+      filters: { conversationUsernames: [groupA], senderWxids: ['bob'] },
+    });
+    assert.equal(selectedGroup.total, 1);
+    assert.equal(selectedGroup.items[0].senderWxid, 'bob');
+    assert.deepEqual(
+      Object.fromEntries(selectedGroup.senders.map((sender) => [sender.wxid, sender.count])),
+      { alice: 1, bob: 1 }
+    );
+
+    const selectedAcrossGroups = listDatasetImages({
+      datasetDir: temp,
+      filters: { conversationUsernames: [groupA, groupB], senderWxids: ['alice'] },
+    });
+    assert.equal(selectedAcrossGroups.total, 2);
+    assert.deepEqual(new Set(selectedAcrossGroups.items.map((item) => item.conversationUsername)), new Set([groupA, groupB]));
+    assert.equal(listDatasetImages({
+      datasetDir: temp,
+      filters: { conversationUsernames: [] },
+    }).total, 0);
+    const noSenders = listDatasetImages({
+      datasetDir: temp,
+      filters: { conversationUsernames: [groupA], senderWxids: [] },
+    });
+    assert.equal(noSenders.total, 0);
+    assert.deepEqual(new Set(noSenders.senders.map((sender) => sender.wxid)), new Set(['alice', 'bob']));
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test('non-classifiable media is marked and excluded from image review queues', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-media-kind-'));
   const conversationId = 'conv_media_kind';
