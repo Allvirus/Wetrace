@@ -25,7 +25,7 @@ $targets = @((Get-Item -LiteralPath $dllPath)) + $executables
 $failed = @()
 foreach ($target in $targets) {
   $signature = Get-AuthenticodeSignature -LiteralPath $target.FullName
-  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $target.FullName).Hash.ToLowerInvariant()
+  $hash = [BitConverter]::ToString(([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($target.FullName)))).Replace('-', '').ToLowerInvariant()
   $relative = $target.FullName.Substring($root.Length).TrimStart([char[]]"\/")
   Write-Host ($relative + " | SHA-256 " + $hash + " | Authenticode " + $signature.Status)
   if ($signature.Status -ne "Valid") { $failed += $relative }
