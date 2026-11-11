@@ -8,7 +8,7 @@ const { atomicWriteJson, openOrCreateDataset } = require('../lib/jewelryDataset'
 const { sourceDay } = require('../lib/jewelryArchive');
 const { normalizeClassificationScope } = require('../lib/jewelryClassificationScope');
 
-test('classification scope validates multiple datasets, dates, and group allowlists', () => {
+test('classification scope validates datasets and dates without restricting groups', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-scope-'));
   try {
     const firstDir = path.join(temp, 'first');
@@ -42,9 +42,9 @@ test('classification scope validates multiple datasets, dates, and group allowli
     assert.throws(() => normalizeClassificationScope({
       sources: [{ datasetDir: firstDir }, { datasetDir: firstDir }],
     }), /same dataset/);
-    assert.throws(() => normalizeClassificationScope({
+    assert.deepEqual(normalizeClassificationScope({
       sources: [{ datasetDir: firstDir, conversationUsernames: ['outside@chatroom'] }],
-    }), /outside the allowlist/);
+    }).sources[0].conversationUsernames, ['outside@chatroom']);
     assert.throws(() => normalizeClassificationScope({
       sources: [{ datasetDir: firstDir }],
       dateFrom: '2026-08-01',
@@ -63,6 +63,8 @@ test('classification scope validates multiple datasets, dates, and group allowli
     });
     assert.deepEqual(expanded.sources[0].conversationUsernames, ['future@chatroom']);
     assert.equal(expanded.day, '2026-07-28');
+    assert.deepEqual(openOrCreateDataset({ rootDir: firstDir }).manifest.classificationPolicy,
+      { schemaVersion: 2, mode: 'active' });
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

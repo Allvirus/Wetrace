@@ -186,7 +186,7 @@ test('dataset sync filters stored members while retaining same-group image conte
     fs.mkdirSync(path.join(decryptedDir, 'message'), { recursive: true });
     fs.writeFileSync(path.join(decryptedDir, 'info.json'), JSON.stringify({ encrypted_fingerprint: 'sync-v1' }));
     openOrCreateDataset({ rootDir: datasetDir, accountWxid: 'wxid_self' });
-    const sourceVersion = crypto
+    const sourceVersion = 'records-v2:' + crypto
       .createHash('sha256')
       .update(getDecryptedStorageFingerprint(accountDir))
       .digest('hex');
@@ -900,7 +900,7 @@ test('dataset paths are rebound after a move and manual locks survive Codex resu
   }
 });
 
-test('learning store accepts only target-group manual samples and retains GUID references', () => {
+test('learning store accepts manual samples from any group and retains GUID references', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-learning-scope-'));
   const learningDbPath = path.join(temp, 'learning.db');
   const imagePath = path.join(temp, 'sample.png');
@@ -927,8 +927,8 @@ test('learning store accepts only target-group manual samples and retains GUID r
       learningDbPath,
       { absolutePath: imagePath },
       makeRecord('outside-guid', 'other@chatroom')
-    ), false);
-    assert.equal(fs.existsSync(learningDbPath), false);
+    ), true);
+    assert.equal(fs.existsSync(learningDbPath), true);
 
     assert.equal(saveLearningSample(
       learningDbPath,
@@ -947,7 +947,7 @@ test('learning store accepts only target-group manual samples and retains GUID r
       assert.equal(rows.length, 1);
       assert.deepEqual(
         JSON.parse(rows[0].source_refs_json).map((ref) => ref.imageId).sort(),
-        ['target-guid-1', 'target-guid-2']
+        ['outside-guid', 'target-guid-1', 'target-guid-2']
       );
     } finally {
       db.close();

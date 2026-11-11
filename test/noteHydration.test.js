@@ -17,6 +17,26 @@ const {
   updateNoteHydrationTaskState,
 } = require('../lib/noteHydration');
 const { downloadNoteResources } = require('../lib/noteResourceDownloader');
+const { enrichMessage } = require('../lib/messageParser');
+const { isImageMessage } = require('../lib/viewerCore');
+
+test('escaped recordinfo notes expose their text and images to the viewer', () => {
+  const record = '<recordinfo><desc>测试笔记</desc><datalist count="2">' +
+    '<dataitem datatype="1"><datadesc>项链说明</datadesc></dataitem>' +
+    '<dataitem datatype="2"><fullmd5>0123456789abcdef0123456789abcdef</fullmd5>' +
+    '<datasize>123</datasize></dataitem></datalist></recordinfo>';
+  const escaped = record.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  for (const body of [escaped, '<![CDATA[' + record + ']]>']) {
+    const message = enrichMessage(103079215153,
+      '<msg><appmsg appid=""><type>24</type><recorditem>' + body + '</recorditem></appmsg></msg>');
+    assert.equal(message.extra.kind, 'note');
+    assert.equal(message.content, '测试笔记');
+    assert.equal(message.extra.recordImageCount, 1);
+    assert.equal(message.extra.recordItems[0].dataDesc, '项链说明');
+    assert.equal(message.extra.recordItems[1].fullMd5, '0123456789abcdef0123456789abcdef');
+    assert.equal(isImageMessage(message), true);
+  }
+});
 
 test('note hydration tasks track only real note images and preserve attempt state', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wetrace-note-tasks-'));

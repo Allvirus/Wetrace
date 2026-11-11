@@ -162,7 +162,7 @@ test('current group refresh skips account scan when source data is unchanged', a
     fs.writeFileSync(path.join(paths.decryptedDir, 'info.json'), JSON.stringify({
       encrypted_fingerprint: getEncryptedStorageFingerprint(accountDir),
     }));
-    const sourceVersion = crypto
+    const sourceVersion = 'records-v2:' + crypto
       .createHash('sha256')
       .update(getDecryptedStorageFingerprint(accountDir, paths.decryptedDir))
       .digest('hex');

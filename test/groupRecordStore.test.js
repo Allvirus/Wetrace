@@ -126,6 +126,16 @@ test('group record service builds once and merges newly decrypted messages', asy
     assert.equal(fs.existsSync(recordDbPath), true);
     assert.equal(fs.existsSync(legacyRecordDbPath), false);
 
+    // A parser upgrade must revisit older rows, not only the newest timestamp.
+    const { DatabaseSync } = require('../lib/sqliteRuntime');
+    const oldCache = new DatabaseSync(recordDbPath);
+    oldCache.prepare("UPDATE groups SET source_version = 'legacy-parser'").run();
+    oldCache.prepare("UPDATE messages SET content = 'unparsed' WHERE local_id = 1").run();
+    oldCache.close();
+    const reparsed = await loadCachedConversationMessages({ wxDir: accountDir, username, datasetDir, limit: 10 });
+    assert.equal(reparsed.messages.find((item) => item.id === 1).content, 'first');
+    assert.equal(reparsed.messages.length, 2);
+
     db = new SQL.Database(fs.readFileSync(messageDbPath));
     db.run(`INSERT INTO ${table} VALUES (3, 103, 1, 3, 1, 300, 0, 'third', '', '', 0)`);
     fs.writeFileSync(messageDbPath, Buffer.from(db.export()));
